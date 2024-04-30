@@ -17,7 +17,6 @@ def vision():
             'intake_angle': None,
             'balls_count': 0,
             'climb_counter': None,
-            'endgame': False,
         }
         while True:
             img = pyautogui.screenshot()
@@ -37,11 +36,8 @@ def vision():
             lower_intake = np.array([0, 0, 0]) 
             upper_intake = np.array([1,1,1]) 
             lower_climb = np.array([53,184,182]) 
-            upper_climb = np.array([55,186,184]) 
-            lower_endgametimer = np.array([25,207,226])
-            upper_endgametimer = np.array([27,209,228])
+            upper_climb = np.array([55,186,184])
 
-            endgametimer_mask = cv2.inRange(hsv, lower_endgametimer, upper_endgametimer)
             climb_mask = cv2.inRange(hsv, lower_climb, upper_climb)
             intake_mask = cv2.inRange(hsv, lower_intake, upper_intake)
             ycargo_mask = cv2.inRange(hsv, lower_ycargo, upper_ycargo)
@@ -70,17 +66,14 @@ def vision():
             if contours:
                 all_points = np.concatenate(contours)
                 if len(all_points) > 0:
-                    # Get the minimum area rectangle enclosing the intake contour
+
                     rect = cv2.minAreaRect(all_points)
                     box = cv2.boxPoints(rect)
                     box = np.int0(box)
                     cv2.drawContours(frame, [box], 0, (0, 255, 0), 2)
-                    
-                    # Get the longest side of the intake bounding box
+
                     longest_side = max(np.linalg.norm(box[0] - box[1]), np.linalg.norm(box[1] - box[2]))
-                    # Find the index of the corner points representing the longest side
                     longest_side_indices = np.where([np.linalg.norm(box[i] - box[(i+1)%4]) == longest_side for i in range(4)])[0]
-                    # Calculate the angle of the longest side
                     if len(longest_side_indices) >= 2:
                         angle = math.atan2(box[longest_side_indices[1]][1] - box[longest_side_indices[0]][1], 
                                         box[longest_side_indices[1]][0] - box[longest_side_indices[0]][0]) * 180 / np.pi
@@ -107,7 +100,7 @@ def vision():
                 for cnt in contours:
                     x,y,w,h = cv2.boundingRect(cnt)
                     cv2.rectangle(frame,(x,y),(x+w,y+h),(0,0,255),2)
-                    climb_counter = climb_counter+1
+                    climb_counter += 1
                 result['climb_counter'] = climb_counter
 
             if np.any(nocargo_mask != 0):
@@ -116,11 +109,6 @@ def vision():
                 cv2.putText(frame, '1 cargo', org, font, fontScale, color, thickness, cv2.LINE_AA)
             else:
                 cv2.putText(frame, '2 cargo', org, font, fontScale, color, thickness, cv2.LINE_AA)
-
-            if np.any(endgametimer_mask) != 0:
-                result['endgame'] = True
-            else:
-                result['endgame'] = False
 
             result['frame'] = frame 
 

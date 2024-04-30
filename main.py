@@ -9,22 +9,22 @@ cv2.resizeWindow("Live", 1280,720)
 timestarted = False
 
 def autoclimb(needlebboxcount):
-    if needlebboxcount == 2:
+    if needlebboxcount > 1:
         pyKey.press(key='r',sec=0.1)
 
 for result in vision.vision():
-    autoclimb(result['climb_counter'])
+    if result['climb_counter']:
+        autoclimb(result['climb_counter'])
     frame = result.get('frame', None)
     cv2.imshow("Live", frame)
-    if ['endgame'] == False:
-        timestarted = False
-    else:
-        if timestarted == False:
-            start = time.time()
-            timestarted = True
-        print(f"{time.time() - start} , {time.time()},{start}")
-    if time.time() - start > 33 and timestarted == True:
-        print("game end")
+    if timestarted == False:
+        start = time.time()
+    if result['balls_coords']:
+        timestarted = True
+
+    print(f"{time.time() - start} , {time.time()},{start}")
+    if time.time() - start > 155 and timestarted == True:
+        break
     if cv2.waitKey(1) == ord('q'):
         break
 
