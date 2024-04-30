@@ -1,6 +1,7 @@
 import pyautogui
 import cv2
 import numpy as np
+import math
 
 def vision():
     font = cv2.FONT_HERSHEY_SIMPLEX 
@@ -51,19 +52,31 @@ def vision():
                 circles = np.round(circles[0, :]).astype("int")
                 result['balls_count'] = len(circles)
                 for (x, y, r) in circles:
+                    cv2.circle(frame, (x, y), r, (0, 255, 0), 4)
+                    cv2.rectangle(frame, (x - r, y - r), (x + r, y + r), (0, 255, 0), 2)
                     result['balls_coords'].append((x, y))
 
             contours, _ = cv2.findContours(intake_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
             if contours:
                 all_points = np.concatenate(contours)
                 if len(all_points) > 0:
+                    # Get the minimum area rectangle enclosing the intake contour
                     rect = cv2.minAreaRect(all_points)
                     box = cv2.boxPoints(rect)
                     box = np.int0(box)
                     cv2.drawContours(frame, [box], 0, (0, 255, 0), 2)
-                    # Get the angle of the intake
-                    angle = rect[2]
-                    result['intake_angle'] = angle
+                    
+                    # Get the longest side of the intake bounding box
+                    longest_side = max(np.linalg.norm(box[0] - box[1]), np.linalg.norm(box[1] - box[2]))
+                    # Find the index of the corner points representing the longest side
+                    longest_side_indices = np.where([np.linalg.norm(box[i] - box[(i+1)%4]) == longest_side for i in range(4)])[0]
+                    # Calculate the angle of the longest side
+                    if len(longest_side_indices) >= 2:
+                        angle = math.atan2(box[longest_side_indices[1]][1] - box[longest_side_indices[0]][1], 
+                                        box[longest_side_indices[1]][0] - box[longest_side_indices[0]][0]) * 180 / np.pi
+                        result['intake_angle'] = angle
+                    else:
+                        result['intake_angle'] = None 
 
             contours, _ = cv2.findContours(bumper_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
             if contours:
