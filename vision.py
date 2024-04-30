@@ -15,7 +15,8 @@ def vision():
             'balls_coords': [],
             'robot_center': None,
             'intake_angle': None,
-            'balls_count': 0
+            'balls_count': 0,
+            'climb_counter': None
         }
         while True:
             img = pyautogui.screenshot()
@@ -33,8 +34,11 @@ def vision():
             lower_ycargo = np.array([25,220,120])
             upper_ycargo = np.array([35,230,130])
             lower_intake = np.array([0, 0, 0]) 
-            upper_intake = np.array([1,1,1])  
+            upper_intake = np.array([1,1,1]) 
+            lower_climb = np.array([53,184,182]) 
+            upper_climb = np.array([55,186,184]) 
 
+            climb_mask = cv2.inRange(hsv, lower_climb, upper_climb)
             intake_mask = cv2.inRange(hsv, lower_intake, upper_intake)
             ycargo_mask = cv2.inRange(hsv, lower_ycargo, upper_ycargo)
             nocargo_mask = cv2.inRange(hsv, lower_nocargo, upper_nocargo)
@@ -43,8 +47,10 @@ def vision():
             kernel = np.ones((3, 3), np.uint8)
             bumper_mask = cv2.erode(bumper_mask, kernel, iterations=1)
             bumper_mask = cv2.dilate(bumper_mask, kernel, iterations=1)
-            
-            edges = cv2.Canny(ball_mask, 100, 200)
+            climb_mask = cv2.erode(climb_mask, kernel, iterations=1)
+            climb_mask = cv2.dilate(climb_mask, kernel, iterations=1)
+          
+            edges = cv2.Canny(ball_mask,100,200)
 
             circles = cv2.HoughCircles(edges, cv2.HOUGH_GRADIENT, dp=1, minDist=20, param1=50, param2=25, minRadius=0, maxRadius=35)
 
@@ -90,6 +96,15 @@ def vision():
                 cx = int(M["m10"] / M["m00"])
                 cy = int(M["m01"] / M["m00"])
                 result['robot_center'] = (cx, cy)
+
+            contours, _ = cv2.findContours(climb_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            if contours:
+                climb_counter = 0
+                for cnt in contours:
+                    x,y,w,h = cv2.boundingRect(cnt)
+                    cv2.rectangle(frame,(x,y),(x+w,y+h),(0,0,255),2)
+                    climb_counter = climb_counter+1
+                result['climb_counter'] = climb_counter
 
             if np.any(nocargo_mask != 0):
                 cv2.putText(frame, 'No cargo detected', org, font, fontScale, color, thickness, cv2.LINE_AA)
