@@ -22,7 +22,6 @@ for result in vision.vision():
     if result['balls_coords']:
         timestarted = True
 
-    print(f"{time.time() - start} , {time.time()},{start}")
     if time.time() - start > 155 and timestarted == True:
         break
     if cv2.waitKey(1) == ord('q'):

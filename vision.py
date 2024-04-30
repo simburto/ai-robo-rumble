@@ -62,37 +62,56 @@ def vision():
                     cv2.rectangle(frame, (x - r, y - r), (x + r, y + r), (0, 255, 0), 2)
                     result['balls_coords'].append((x, y))
 
-            contours, _ = cv2.findContours(intake_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-            if contours:
-                all_points = np.concatenate(contours)
-                if len(all_points) > 0:
-
-                    rect = cv2.minAreaRect(all_points)
-                    box = cv2.boxPoints(rect)
-                    box = np.int0(box)
-                    cv2.drawContours(frame, [box], 0, (0, 255, 0), 2)
-
-                    longest_side = max(np.linalg.norm(box[0] - box[1]), np.linalg.norm(box[1] - box[2]))
-                    longest_side_indices = np.where([np.linalg.norm(box[i] - box[(i+1)%4]) == longest_side for i in range(4)])[0]
-                    if len(longest_side_indices) >= 2:
-                        angle = math.atan2(box[longest_side_indices[1]][1] - box[longest_side_indices[0]][1], 
-                                        box[longest_side_indices[1]][0] - box[longest_side_indices[0]][0]) * 180 / np.pi
-                        result['intake_angle'] = angle
-                    else:
-                        result['intake_angle'] = None 
-
             contours, _ = cv2.findContours(bumper_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
             if contours:
                 all_points = np.concatenate(contours)
                 rect = cv2.minAreaRect(all_points)
                 box = cv2.boxPoints(rect)
-                box = np.int0(box)
+                box = np.int0(box)  
+                for i in box:
+                    cv2.circle(frame,(i[0],i[1]), 10, (255,255,0), -1)
                 cv2.drawContours(frame, [box], 0, (255, 0, 0), 2)
-                # Get the center of the robot
-                M = cv2.moments(all_points)
-                cx = int(M["m10"] / M["m00"])
-                cy = int(M["m01"] / M["m00"])
-                result['robot_center'] = (cx, cy)
+                M = cv2.moments(box)
+                cX = int(M["m10"] / M["m00"])
+                cY = int(M["m01"] / M["m00"])
+                cv2.circle(frame, (cX, cY), 5, (36, 255, 12), -1)
+                result['robot_center'] = (cX, cY)
+
+            contours, _ = cv2.findContours(intake_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            if contours:
+                all_points = np.concatenate(contours)
+                if len(all_points) > 0:
+                    rect = cv2.minAreaRect(all_points)
+                    box = cv2.boxPoints(rect)
+                    box = np.int0(box)
+                    longest_side = max(np.linalg.norm(box[i] - box[(i + 1) % 4]) for i in range(4))
+                    cv2.drawContours(frame, [box], 0, (0, 255, 0), 2)
+
+                    for i in range(4):
+                        p1, p2 = box[i], box[(i + 1) % 4]
+                        side_length = np.linalg.norm(p1 - p2)
+                        if side_length == longest_side:
+                            cv2.line(frame, tuple(p1), tuple(p2), (0, 0, 255), 2)
+                            break
+
+            if contours:
+                bumper_center = (cX, cY)
+
+                intake_longest_side = max(cv2.arcLength(contour, True) for contour in contours)
+                for contour in contours:
+                    if cv2.arcLength(contour, True) == intake_longest_side:
+                        rect = cv2.minAreaRect(contour)
+                        intake_box = cv2.boxPoints(rect)
+                        intake_box = np.int0(intake_box)
+                        p1, p2 = intake_box[0], intake_box[1] 
+                        angle_rad = math.atan2(p2[1] - p1[1], p2[0] - p1[0])
+                        angle_deg = math.degrees(angle_rad)
+                        result['intake_angle'] = angle_deg
+
+                        ray_length = 100 
+                        p2_x = int(cX + ray_length * math.cos(angle_rad))
+                        p2_y = int(cY + ray_length * math.sin(angle_rad))
+                        cv2.line(frame, bumper_center, (p2_x, p2_y), (0, 255, 255), 2)
 
             contours, _ = cv2.findContours(climb_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
             if contours:
