@@ -16,7 +16,8 @@ def vision():
             'robot_center': None,
             'intake_angle': None,
             'balls_count': 0,
-            'climb_counter': None
+            'climb_counter': None,
+            'endgame': False,
         }
         while True:
             img = pyautogui.screenshot()
@@ -37,7 +38,10 @@ def vision():
             upper_intake = np.array([1,1,1]) 
             lower_climb = np.array([53,184,182]) 
             upper_climb = np.array([55,186,184]) 
+            lower_endgametimer = np.array([25,207,226])
+            upper_endgametimer = np.array([27,209,228])
 
+            endgametimer_mask = cv2.inRange(hsv, lower_endgametimer, upper_endgametimer)
             climb_mask = cv2.inRange(hsv, lower_climb, upper_climb)
             intake_mask = cv2.inRange(hsv, lower_intake, upper_intake)
             ycargo_mask = cv2.inRange(hsv, lower_ycargo, upper_ycargo)
@@ -49,7 +53,7 @@ def vision():
             bumper_mask = cv2.dilate(bumper_mask, kernel, iterations=1)
             climb_mask = cv2.erode(climb_mask, kernel, iterations=1)
             climb_mask = cv2.dilate(climb_mask, kernel, iterations=1)
-          
+
             edges = cv2.Canny(ball_mask,100,200)
 
             circles = cv2.HoughCircles(edges, cv2.HOUGH_GRADIENT, dp=1, minDist=20, param1=50, param2=25, minRadius=0, maxRadius=35)
@@ -113,7 +117,12 @@ def vision():
             else:
                 cv2.putText(frame, '2 cargo', org, font, fontScale, color, thickness, cv2.LINE_AA)
 
-            result['frame'] = frame  # Store the frame in the result dictionary
+            if np.any(endgametimer_mask) != 0:
+                result['endgame'] = True
+            else:
+                result['endgame'] = False
+
+            result['frame'] = frame 
 
             yield result
             if cv2.waitKey(1) == ord('q'):
