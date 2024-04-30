@@ -85,7 +85,9 @@ def vision():
             else:
                 cv2.putText(frame, '2 cargo', org, font, fontScale, color, thickness, cv2.LINE_AA)
 
-            yield frame
+            result['frame'] = frame  # Store the frame in the result dictionary
+
+            yield result
             if cv2.waitKey(1) == ord('q'):
                 break
 
