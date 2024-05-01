@@ -26,7 +26,7 @@ for result in vision.vision():
         timestarted = True
 
     if time.time() - start > 155 and timestarted == True:
-        break
+        pass
     if cv2.waitKey(1) == ord('q'):
         break
 
