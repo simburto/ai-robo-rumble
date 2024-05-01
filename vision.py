@@ -2,16 +2,31 @@ import pyautogui
 import cv2
 import numpy as np
 import math
+import pytesseract
+
+pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
+font = cv2.FONT_HERSHEY_SIMPLEX 
+org = (50, 50) 
+fontScale = 1
+color = (255, 0, 0)  
+thickness = 2
+
+numbers = [
+    np.invert(cv2.cvtColor(cv2.imread('numbea/0.png'), cv2.COLOR_RGB2GRAY)),
+    np.invert(cv2.cvtColor(cv2.imread('numbea/1.png'), cv2.COLOR_RGB2GRAY)),
+    np.invert(cv2.cvtColor(cv2.imread('numbea/2.png'), cv2.COLOR_RGB2GRAY)),
+    np.invert(cv2.cvtColor(cv2.imread('numbea/3.png'), cv2.COLOR_RGB2GRAY)),
+    np.invert(cv2.cvtColor(cv2.imread('numbea/4.png'), cv2.COLOR_RGB2GRAY)),
+    np.invert(cv2.cvtColor(cv2.imread('numbea/5.png'), cv2.COLOR_RGB2GRAY)),
+    np.invert(cv2.cvtColor(cv2.imread('numbea/6.png'), cv2.COLOR_RGB2GRAY)),
+    np.invert(cv2.cvtColor(cv2.imread('numbea/7.png'), cv2.COLOR_RGB2GRAY)),
+    np.invert(cv2.cvtColor(cv2.imread('numbea/8.png'), cv2.COLOR_RGB2GRAY)),
+    np.invert(cv2.cvtColor(cv2.imread('numbea/9.png'), cv2.COLOR_RGB2GRAY))
+]
 
 def vision():
-    font = cv2.FONT_HERSHEY_SIMPLEX 
-    org = (50, 50) 
-    fontScale = 1
-    color = (255, 0, 0)  
-    thickness = 2
     cX = 0
     cY = 0
-
     while True:
         result = {
             'balls_coords': [],
@@ -20,6 +35,8 @@ def vision():
             'balls_count': 0,
             'climb_counter': None,
             'cargo_count': 0,
+            'balls_shot': 0,
+            'score': 0,
         }
         img = pyautogui.screenshot()
 
@@ -52,10 +69,19 @@ def vision():
         climb_mask = cv2.erode(climb_mask, kernel, iterations=1)
         climb_mask = cv2.dilate(climb_mask, kernel, iterations=1)
 
+        grayframe = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
+        scoreframe = grayframe[688:1080, 710:1210]
+        cv2.rectangle(scoreframe,(0,0), (145, 402),  (0,0,0), -1)
+        cv2.rectangle(scoreframe,(0,0), (550, 285),  (0,0,0), -1)
+        cv2.rectangle(scoreframe,(321,0), (550, 402),  (0,0,0), -1)
+        cv2.rectangle(scoreframe,(0,375), (550, 400),  (0,0,0), -1)
+        scoreframe = np.invert(scoreframe)  
+        scoreframe_rgb = cv2.cvtColor(scoreframe, cv2.COLOR_GRAY2RGB) 
+############################################################################################################################################################
+#pls help 
+
         edges = cv2.Canny(ball_mask,100,200)
-
         circles = cv2.HoughCircles(edges, cv2.HOUGH_GRADIENT, dp=1, minDist=20, param1=50, param2=25, minRadius=0, maxRadius=35)
-
         if circles is not None:
             circles = np.round(circles[0, :]).astype("int")
             result['balls_count'] = len(circles)
