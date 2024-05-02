@@ -14,8 +14,7 @@ fontScale = 1
 color = (255, 0, 0)  
 thickness = 2
 kernel = np.ones((3, 3), np.uint8)
-lock = threading.Lock()
-exit_flag = threading.Event()
+ARRAY_SIZE = 8294400
 
 if __name__ == "__main__":
     result = multiprocessing.Manager().dict({
