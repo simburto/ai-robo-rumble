@@ -16,13 +16,13 @@ thickness = 2
 kernel = np.ones((3, 3), np.uint8)
 lock = threading.Lock()
 exit_flag = threading.Event()
+
 if __name__ == "__main__":
     result = multiprocessing.Manager().dict({
         'robot_center': None,
         'intake_angle': None,
         'red_ball_count': 0,
         'red_ball_pos': [],
-        'climb_counter': None,
         'cargo_count': 0,
         'blue_ball_count': 0,
         'blue_ball_pos': [],
@@ -34,7 +34,7 @@ if __name__ == "__main__":
         'red_ball_box': None,
         'climb_box': None,
         'blue_ball_box': None,
-        'time': None,
+        'counter': 0,
     })
 
 numbers = [
@@ -52,34 +52,29 @@ numbers = [
 
 class vision():
     def vision(result):
+        monitor = {"top": 0, "left": 0, "width": 1920, "height": 1080}
+        sct = mss()
         while True:
-            climb_counter = 0
-            monitor = {"top": 0, "left": 0, "width": 1920, "height": 1080}
-            sct = mss()
+            start = time.time()
             frame = np.array(sct.grab(monitor))
             result['frame'] = frame
             hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
             result['hsv'] = hsv
             if np.any(hsv) and keyboard.is_pressed('q'):
-                climb_counter = 0
                 lower_climb = np.array([53,184,182]) 
                 upper_climb = np.array([55,186,184])
 
                 climb_mask = cv2.inRange(hsv, lower_climb, upper_climb)
-                climb_mask = cv2.erode(climb_mask, kernel, iterations=1)
-                climb_mask = cv2.dilate(climb_mask, kernel, iterations=1)
 
                 contours, _ = cv2.findContours(climb_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-                if contours:
-                    result['climb_box'] = contours
-                    for cnt in contours:
-                        climb_counter += 1
-                    result['climb_counter'] = climb_counter
+                if len(contours) > 1:
+                    pyKey.press(key='r',sec=0.1)
             cv2.waitKey(1)
             cv2.imshow('vision', frame)
+            print(1/(time.time() - start))
     def cargo(result):
         while True:
-            if np.any(result['hsv']):
+            if np.any(result['hsv']) and result['counter'] != 4:
                 hsv = result['hsv']
                 lower_nocargo = np.array([0,150,144])
                 upper_nocargo = np.array([1,152,146])
@@ -95,7 +90,7 @@ class vision():
                     result['cargo_count'] = 2
     def robot(result):
         while True:
-            if np.any(result['hsv']):
+            if np.any(result['hsv']) and result['counter'] != 4:
                 hsv = result['hsv']
                 cX = 0
                 cY = 0
@@ -148,7 +143,7 @@ class vision():
                             angle_deg = math.degrees(angle_rad) 
                             result['intake_angle'] = angle_deg
     def red_balls(result):
-        while True:
+        if np.any(result['hsv']) and result['counter'] != 4:
             if np.any(result['hsv']):
                 hsv = result['hsv']
                 lower_red = np.array([1, 202, 236])
@@ -159,11 +154,10 @@ class vision():
                 if circles is not None:
                     circles = np.round(circles[0, :]).astype("int")
                     result['red_ball_count'] = len(circles)
-                    result['red_ball_box'] = circles
-                    for (x, y, r) in circles:
-                        result['red_ball_pos'].append((x, y))
+                    result['red_ball_box'] = circles.tolist()
+                    result['red_ball_pos'] = [(x, y) for (x, y, _) in circles]
     def blue_balls(result):
-        while True:
+        if np.any(result['hsv']) and result['counter'] != 4:
             if np.any(result['hsv']):
                 hsv = result['hsv']
                 lower_blue = np.array([101, 244, 178])
@@ -174,9 +168,8 @@ class vision():
                 if circles is not None:
                     circles = np.round(circles[0, :]).astype("int")
                     result['blue_ball_count'] = len(circles)
-                    result['blue_ball_box'] = circles
-                    for (x, y, r) in circles:
-                        result['blue_ball_pos'].append((x, y))
+                    result['blue_ball_box'] = circles.tolist()
+                    result['blue_ball_pos'] = [(x, y) for (x, y, _) in circles]
     def display(result):
         while True:
             frame = result['frame']
@@ -243,9 +236,7 @@ if __name__ == '__main__':
         red_balls_thread.start()
         blue_balls_thread.start()
         display_thread.start()
-        while True:
-            if result['climb_counter'] and result['climb_counter'] >1:
-                pyKey.press(key='r',sec=0.1)
+        while True:      
             if timestarted == False:
                 start = time.time()
             elif result['red_ball_pos']:
@@ -253,9 +244,10 @@ if __name__ == '__main__':
             if time.time() - start > 155 and timestarted == True:
                 pass
             i=i+1
-            if i == 4000:
-                print(f"Vision alive: {vision_thread.is_alive()} \nCargo alive: {cargo_thread.is_alive()} \nRobot alive: {robot_thread.is_alive()} \nRed balls alive:  {red_balls_thread.is_alive()} \nBlue balls alive: {blue_balls_thread.is_alive()} \nDisplay alive: {display_thread.is_alive()}")
+            if i == 100:
+                print(f"Vision alive: {vision_thread.is_alive()}, {vision_thread.pid} \nCargo alive: {cargo_thread.is_alive()}, {cargo_thread.pid} \nRobot alive: {robot_thread.is_alive()}, {robot_thread.pid} \nRed balls alive:  {red_balls_thread.is_alive()}, {red_balls_thread.pid} \nBlue balls alive: {blue_balls_thread.is_alive()}, {blue_balls_thread.pid} \nDisplay alive: {display_thread.is_alive()}, {display_thread.pid}")
                 i=0
+            time.sleep(0.02)
 
     except KeyboardInterrupt:
         print('Exiting...')
