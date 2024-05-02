@@ -14,25 +14,27 @@ color = (255, 0, 0)
 thickness = 2
 kernel = np.ones((3, 3), np.uint8)
 
-if __name__ == "__main__":
-    result = multiprocessing.Manager().dict({
-        'robot_center': None,
-        'intake_angle': None,
-        'red_ball_count': 0,
-        'red_ball_pos': [],
-        'cargo_count': 0,
-        'blue_ball_count': 0,
-        'blue_ball_pos': [],
-        'hsv': None,
-        'frame': None,
-        'bumper_box': None,
-        'intake_box': None,
-        'intake_side': None,
-        'red_ball_box': None,
-        'climb_box': None,
-        'blue_ball_box': None,
-        'counter': 0,
-    })
+q = multiprocessing.Queue()
+result = {
+    'robot_center': None,
+    'intake_angle': None,
+    'red_ball_count': 0,
+    'red_ball_pos': [],
+    'cargo_count': 0,
+    'blue_ball_count': 0,
+    'blue_ball_pos': [],
+    'hsv': None,
+    'frame': None,
+    'bumper_box': None,
+    'intake_box': None,
+    'intake_side': None,
+    'red_ball_box': None,
+    'climb_box': None,
+    'blue_ball_box': None,
+    'counter': 0,
+}
+
+q.put(result,)
 
 numbers = [
     cv2.imread('numbea/0.png'),
@@ -48,15 +50,18 @@ numbers = [
 ]
 
 class vision():
-    def vision(result):
+    def vision():
         monitor = {"top": 0, "left": 0, "width": 1920, "height": 1080}
         sct = mss()
         while True:
+            result = q.get()
             start = time.time()
             frame = np.array(sct.grab(monitor))
             result['frame'] = frame
+            q.put(result,)
             hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
             result['hsv'] = hsv
+            q.put(result,)
             if np.any(hsv) and keyboard.is_pressed('q'):
                 lower_climb = np.array([53,184,182]) 
                 upper_climb = np.array([55,186,184])
@@ -69,8 +74,9 @@ class vision():
             cv2.waitKey(1)
             cv2.imshow('vision', frame)
             print(1/(time.time() - start))
-    def cargo(result):
+    def cargo():
         while True:
+            result = q.get()
             if np.any(result['hsv']) and result['counter'] != 4:
                 hsv = result['hsv']
                 lower_nocargo = np.array([0,150,144])
@@ -85,8 +91,10 @@ class vision():
                     result['cargo_count'] = 1
                 else:
                     result['cargo_count'] = 2
-    def robot(result):
+                q.put(result,)
+    def robot():
         while True:
+            result = q.get()
             if np.any(result['hsv']) and result['counter'] != 4:
                 hsv = result['hsv']
                 cX = 0
@@ -111,6 +119,7 @@ class vision():
                     cX = int(M["m10"] / M["m00"])
                     cY = int(M["m01"] / M["m00"])
                     result['robot_center'] = (cX, cY)
+                    q.put(result,)
 
                 contours, _ = cv2.findContours(intake_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
                 if contours:
@@ -121,12 +130,14 @@ class vision():
                         box = np.intp(box)
                         longest_side = max(np.linalg.norm(box[i] - box[(i + 1) % 4]) for i in range(4))
                         result['intake_box'] = box
+                        q.put(result,)
 
                         for i in range(4):
                             p1, p2 = box[i], box[(i + 1) % 4]
                             side_length = np.linalg.norm(p1 - p2)
                             if side_length == longest_side:
                                 result['intake_side'] = tuple(p1), tuple(p2)
+                                q.put(result,)
                                 break
 
                 if contours:
@@ -139,36 +150,44 @@ class vision():
                             angle_rad = math.atan2(p2[1] - p1[1], p2[0] - p1[0])
                             angle_deg = math.degrees(angle_rad) 
                             result['intake_angle'] = angle_deg
-    def red_balls(result):
-        if np.any(result['hsv']) and result['counter'] != 4:
-            if np.any(result['hsv']):
-                hsv = result['hsv']
-                lower_red = np.array([1, 202, 236])
-                upper_red = np.array([3, 204, 238])
-                ball_mask = cv2.inRange(hsv, lower_red, upper_red)
-                edges = cv2.Canny(ball_mask,100,200)
-                circles = cv2.HoughCircles(edges, cv2.HOUGH_GRADIENT, dp=1, minDist=20, param1=50, param2=25, minRadius=0, maxRadius=35)
-                if circles is not None:
-                    circles = np.round(circles[0, :]).astype("int")
-                    result['red_ball_count'] = len(circles)
-                    result['red_ball_box'] = circles.tolist()
-                    result['red_ball_pos'] = [(x, y) for (x, y, _) in circles]
-    def blue_balls(result):
-        if np.any(result['hsv']) and result['counter'] != 4:
-            if np.any(result['hsv']):
-                hsv = result['hsv']
-                lower_blue = np.array([101, 244, 178])
-                upper_blue = np.array([103, 246, 180])
-                ball_mask = cv2.inRange(hsv, lower_blue, upper_blue)
-                edges = cv2.Canny(ball_mask,100,200)
-                circles = cv2.HoughCircles(edges, cv2.HOUGH_GRADIENT, dp=1, minDist=20, param1=50, param2=25, minRadius=0, maxRadius=35)
-                if circles is not None:
-                    circles = np.round(circles[0, :]).astype("int")
-                    result['blue_ball_count'] = len(circles)
-                    result['blue_ball_box'] = circles.tolist()
-                    result['blue_ball_pos'] = [(x, y) for (x, y, _) in circles]
-    def display(result):
+                            q.put(result['intake_angle'],)
+    def red_balls():
         while True:
+            result = q.get()
+            if np.any(result['hsv']) and result['counter'] != 4:
+                if np.any(result['hsv']):
+                    hsv = result['hsv']
+                    lower_red = np.array([1, 202, 236])
+                    upper_red = np.array([3, 204, 238])
+                    ball_mask = cv2.inRange(hsv, lower_red, upper_red)
+                    edges = cv2.Canny(ball_mask,100,200)
+                    circles = cv2.HoughCircles(edges, cv2.HOUGH_GRADIENT, dp=1, minDist=20, param1=50, param2=25, minRadius=0, maxRadius=35)
+                    if circles is not None:
+                        circles = np.round(circles[0, :]).astype("int")
+                        result['red_ball_count'] = len(circles)
+                        result['red_ball_box'] = circles.tolist()
+                        result['red_ball_pos'] = [(x, y) for (x, y, _) in circles]
+                        q.put(result,)
+    def blue_balls():
+        while True:
+            result = q.get()
+            if np.any(result['hsv']) and result['counter'] != 4:
+                if np.any(result['hsv']):
+                    hsv = result['hsv']
+                    lower_blue = np.array([101, 244, 178])
+                    upper_blue = np.array([103, 246, 180])
+                    ball_mask = cv2.inRange(hsv, lower_blue, upper_blue)
+                    edges = cv2.Canny(ball_mask,100,200)
+                    circles = cv2.HoughCircles(edges, cv2.HOUGH_GRADIENT, dp=1, minDist=20, param1=50, param2=25, minRadius=0, maxRadius=35)
+                    if circles is not None:
+                        circles = np.round(circles[0, :]).astype("int")
+                        result['blue_ball_count'] = len(circles)
+                        result['blue_ball_box'] = circles.tolist()
+                        result['blue_ball_pos'] = [(x, y) for (x, y, _) in circles]
+                        q.put(result,)
+    def display():
+        while True:
+            result = q.get()
             frame = result['frame']
             cargo_count = result['cargo_count']
             # Display cargo count
@@ -221,19 +240,19 @@ if __name__ == '__main__':
     timestarted = False
     i=0
     try:
-        vision_thread = multiprocessing.Process(target=vision.vision, args=(result,))
-        cargo_thread = multiprocessing.Process(target=vision.cargo, args=(result,))
-        robot_thread = multiprocessing.Process(target=vision.robot, args=(result,))
-        red_balls_thread = multiprocessing.Process(target=vision.red_balls, args=(result,))
-        blue_balls_thread = multiprocessing.Process(target=vision.blue_balls, args=(result,))
-        display_thread = multiprocessing.Process(target=vision.display, args=(result,))
+        vision_thread = multiprocessing.Process(target=vision.vision)
+        cargo_thread = multiprocessing.Process(target=vision.cargo)
+        robot_thread = multiprocessing.Process(target=vision.robot)
+        red_balls_thread = multiprocessing.Process(target=vision.red_balls)
+        blue_balls_thread = multiprocessing.Process(target=vision.blue_balls)
+        display_thread = multiprocessing.Process(target=vision.display)
         vision_thread.start()
         cargo_thread.start()
         robot_thread.start()
         red_balls_thread.start()
         blue_balls_thread.start()
         display_thread.start()
-        while True:      
+        while True:    
             if timestarted == False:
                 start = time.time()
             elif result['red_ball_pos']:
@@ -241,10 +260,10 @@ if __name__ == '__main__':
             if time.time() - start > 155 and timestarted == True:
                 pass
             i=i+1
-            if i == 100:
+            if i == 5000:
                 print(f"Vision alive: {vision_thread.is_alive()}, {vision_thread.pid} \nCargo alive: {cargo_thread.is_alive()}, {cargo_thread.pid} \nRobot alive: {robot_thread.is_alive()}, {robot_thread.pid} \nRed balls alive:  {red_balls_thread.is_alive()}, {red_balls_thread.pid} \nBlue balls alive: {blue_balls_thread.is_alive()}, {blue_balls_thread.pid} \nDisplay alive: {display_thread.is_alive()}, {display_thread.pid}")
                 i=0
-            time.sleep(0.02)
+            time.sleep(0.001)
 
     except KeyboardInterrupt:
         print('Exiting...')
@@ -254,6 +273,5 @@ if __name__ == '__main__':
         red_balls_thread.terminate()
         blue_balls_thread.terminate()
         display_thread.terminate()
-        while display_thread.is_alive() == True:
-            time.sleep(0.1)
+        q.close()
         cv2.destroyAllWindows()
