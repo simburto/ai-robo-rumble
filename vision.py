@@ -1,7 +1,6 @@
 import cv2
 import numpy as np
 import math
-import threading
 import pyKey
 import time
 from mss import mss
@@ -14,7 +13,6 @@ fontScale = 1
 color = (255, 0, 0)  
 thickness = 2
 kernel = np.ones((3, 3), np.uint8)
-ARRAY_SIZE = 8294400
 
 if __name__ == "__main__":
     result = multiprocessing.Manager().dict({

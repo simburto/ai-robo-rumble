@@ -3,6 +3,7 @@ from multiprocessing import *
 from concurrent.futures.process import ProcessPoolExecutor
 import time
 from ctypes import c_double
+import concurrent
 
 
 NUM_WORKERS = cpu_count()
@@ -30,3 +31,4 @@ def benchmark():
             futures.append(executor.submit(np_sum_shared_array, start, i + chunk_size))
     futures, _ = concurrent.futures.wait(futures)
     return (time.time_ns() - ts) / 1_000_000
+benchmark()
