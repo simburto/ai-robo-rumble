@@ -7,6 +7,7 @@ from mss import mss
 import multiprocessing
 import keyboard
 import sys
+from paddleocr import PaddleOCR
 
 font = cv2.FONT_HERSHEY_SIMPLEX 
 org = (50, 50) 
@@ -14,11 +15,10 @@ fontScale = 1
 color = (255, 0, 0)  
 thickness = 2
 kernel = np.ones((3, 3), np.uint8)
+ocr = PaddleOCR(lang='en' ,use_angle_cls = True, show_log=False)
 
-h = multiprocessing.Queue()
-f = multiprocessing.Queue()
-process = multiprocessing.Event()
-newframe = multiprocessing.Event()
+h = multiprocessing.JoinableQueue()
+f = multiprocessing.JoinableQueue()
 
 if __name__ == '__main__':
     result = multiprocessing.Manager().dict({
@@ -38,35 +38,32 @@ if __name__ == '__main__':
     })
 
 class vision():
-    def vision(h, f, newframe, process):
+    def vision(h, f):
+        lower_climb = np.array([53,184,182]) 
+        upper_climb = np.array([55,186,184])
         monitor = {"top": 0, "left": 0, "width": 1920, "height": 1080}
-        sct = mss()
         while True:
-            start = time.time()
-            frame = np.array(sct.grab(monitor))
-            hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-            f.put(frame,)
-            h.put(hsv,)
-            h.put(hsv,)
-            h.put(hsv,)
-            h.put(hsv,)
-            newframe.set()
-            if np.any(hsv) and keyboard.is_pressed('q'):
-                lower_climb = np.array([53,184,182]) 
-                upper_climb = np.array([55,186,184])
-
-                climb_mask = cv2.inRange(hsv, lower_climb, upper_climb)
-
-                contours, _ = cv2.findContours(climb_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-                if len(contours) > 1:
-                    pyKey.press(key='r',sec=0.1)
-            sys.stdout.write(f"\r{1/(time.time() - start)}")
-            sys.stdout.flush()
-            process.wait()
-            process.clear() 
-    def cargo(h, newframe, process, result):
+            with mss() as sct:
+                start = time.time()
+                frame = np.array(sct.grab(monitor))
+                hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+                f.put(frame)
+                h.put(hsv)
+                h.put(hsv)
+                h.put(hsv)
+                h.put(hsv)
+                if np.any(hsv) and keyboard.is_pressed('q'):
+                    climb_mask = cv2.inRange(hsv, lower_climb, upper_climb)
+                    contours, _ = cv2.findContours(climb_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                    if len(contours) > 1:
+                        pyKey.press(key='r',sec=0.1)
+                sys.stdout.write(f"\r{1/(time.time() - start)}")
+                sys.stdout.flush()
+                sct.close()
+                f.join()
+                h.join()
+    def cargo(h, result):
         while True:
-            newframe.wait()
             hsv = h.get()
             lower_nocargo = np.array([0,150,144])
             upper_nocargo = np.array([1,152,146])
@@ -80,10 +77,9 @@ class vision():
                 result['cargo_count'] = 1
             else:
                 result['cargo_count'] = 2
-            process.wait()
-    def robot(h, newframe, process, result):
+            h.task_done()
+    def robot(h, result):
         while True:
-            newframe.wait()
             hsv = h.get()
             cX = 0
             cY = 0
@@ -135,10 +131,9 @@ class vision():
                         angle_rad = math.atan2(p2[1] - p1[1], p2[0] - p1[0])
                         angle_deg = math.degrees(angle_rad) 
                         result['intake_angle'] = angle_deg
-            process.wait()
-    def red_balls(h, newframe, process, result):
+            h.task_done()
+    def red_balls(h, result):
         while True:
-            newframe.wait()
             hsv = h.get()
             lower_red = np.array([1, 202, 236])
             upper_red = np.array([3, 204, 238])
@@ -150,10 +145,9 @@ class vision():
                 result['red_ball_count'] = len(circles)
                 result['red_ball_box'] = circles.tolist()
                 result['red_ball_pos'] = [(x, y) for (x, y, _) in circles]
-
-    def blue_balls(h, newframe, process, result):
-        while True:   
-            newframe.wait()        
+            h.task_done()
+    def blue_balls(h, result):
+        while True:          
             hsv = h.get()
             lower_blue = np.array([101, 244, 178])
             upper_blue = np.array([103, 246, 180])
@@ -165,10 +159,10 @@ class vision():
                 result['blue_ball_count'] = len(circles)
                 result['blue_ball_box'] = circles.tolist()
                 result['blue_ball_pos'] = [(x, y) for (x, y, _) in circles]
-            process.wait()
-    def display(h, f, newframe, result):
+            h.task_done()
+    def display(h, f, result):
+        cv2.namedWindow("Display", cv2.WINDOW_NORMAL) 
         while True:
-            newframe.wait()
             frame = f.get()
             if np.any(frame):
                 cargo_count = result['cargo_count']
@@ -214,20 +208,22 @@ class vision():
                                 x,y,w,h = cv2.boundingRect(cnt)
                                 cv2.rectangle(frame,(x,y),(x+w,y+h),(0,0,255),2)
 
-                cv2.rectangle(frame, (0, 0), (500, 500), (50, 250, 250), 2)
+                cv2.rectangle(frame, (715, 230), (1150, 400), (50, 250, 250), 2)
+                f.task_done()
                 cv2.waitKey(1)
-                cv2.imshow("Live", frame)
+                cv2.imshow("Display", frame)
 
 if __name__ == '__main__':
     timestarted = False
     i=0
     try:
-        vision_thread = multiprocessing.Process(target=vision.vision, args=(h, f, newframe, process))
-        cargo_thread = multiprocessing.Process(target=vision.cargo, args=(h, newframe, process, result))
-        robot_thread = multiprocessing.Process(target=vision.robot, args=(h, newframe, process, result))
-        red_balls_thread = multiprocessing.Process(target=vision.red_balls, args=(h, newframe, process, result))
-        blue_balls_thread = multiprocessing.Process(target=vision.blue_balls, args=(h, newframe, process, result))
-        display_thread = multiprocessing.Process(target=vision.display, args=(h, f, newframe, result))
+        monitor = {"top": 0, "left": 0, "width": 1920, "height": 1080}
+        vision_thread = multiprocessing.Process(target=vision.vision, args=(h, f))
+        cargo_thread = multiprocessing.Process(target=vision.cargo, args=(h, result))
+        robot_thread = multiprocessing.Process(target=vision.robot, args=(h, result))
+        red_balls_thread = multiprocessing.Process(target=vision.red_balls, args=(h, result))
+        blue_balls_thread = multiprocessing.Process(target=vision.blue_balls, args=(h, result))
+        display_thread = multiprocessing.Process(target=vision.display, args=(h, f, result))
         vision_thread.start()
         cargo_thread.start()
         robot_thread.start()
@@ -241,12 +237,7 @@ if __name__ == '__main__':
             elif result['red_ball_pos']:
                 timestarted = True
             if time.time() - start > 155 and timestarted == True:
-                pass
-            empty=False
-            while empty == False:
-                empty = h.empty()
-            newframe.clear()
-            process.set()
+                raise KeyboardInterrupt
             i=i+1
             if i == 5000:
                 print(f"\nVision alive: {vision_thread.is_alive()}, {vision_thread.pid} \nCargo alive: {cargo_thread.is_alive()}, {cargo_thread.pid} \nRobot alive: {robot_thread.is_alive()}, {robot_thread.pid} \nRed balls alive:  {red_balls_thread.is_alive()}, {red_balls_thread.pid} \nBlue balls alive: {blue_balls_thread.is_alive()}, {blue_balls_thread.pid} \nDisplay alive: {display_thread.is_alive()}, {display_thread.pid}")
@@ -264,4 +255,11 @@ if __name__ == '__main__':
         f.close()
         h.close()
         result._close()
+        sct = mss()
+        frame = np.array(sct.grab(monitor))
+        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        frame = frame[230:400, 715:1150]
+        score = ocr.ocr(frame, cls=True)
+        print(score[0][0][1][0])
+        sct.close()
         cv2.destroyAllWindows()
