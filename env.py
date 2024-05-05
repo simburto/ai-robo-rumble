@@ -213,7 +213,7 @@ class vision():
                 cv2.waitKey(1)
                 cv2.imshow("Display", frame)
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     timestarted = False
     i=0
     try:
@@ -231,12 +231,19 @@ if __name__ == '__main__':
         blue_balls_thread.start()
         display_thread.start()
         print(f"Vision alive: {vision_thread.is_alive()}, {vision_thread.pid} \nCargo alive: {cargo_thread.is_alive()}, {cargo_thread.pid} \nRobot alive: {robot_thread.is_alive()}, {robot_thread.pid} \nRed balls alive:  {red_balls_thread.is_alive()}, {red_balls_thread.pid} \nBlue balls alive: {blue_balls_thread.is_alive()}, {blue_balls_thread.pid} \nDisplay alive: {display_thread.is_alive()}, {display_thread.pid}")
+        start = None
         while True:    
-            if timestarted == False:
+            if timestarted == False and result['red_ball_pos']:
                 start = time.time()
-            elif result['red_ball_pos']:
                 timestarted = True
-            if time.time() - start > 155 and timestarted == True:
+            if timestarted == True and time.time() - start > 180:
+                sct = mss()
+                frame = np.array(sct.grab(monitor))
+                frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                frame = frame[230:400, 715:1150]
+                score = ocr.ocr(frame, cls=True)
+                print(f"\n{score[0][0][1][0]}\n")
+                sct.close()
                 raise KeyboardInterrupt
             i=i+1
             if i == 5000:
@@ -255,11 +262,4 @@ if __name__ == '__main__':
         f.close()
         h.close()
         result._close()
-        sct = mss()
-        frame = np.array(sct.grab(monitor))
-        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        frame = frame[230:400, 715:1150]
-        score = ocr.ocr(frame, cls=True)
-        print(score[0][0][1][0])
-        sct.close()
         cv2.destroyAllWindows()
