@@ -20,10 +20,11 @@ ocr = PaddleOCR(lang='en', use_angle_cls=True, show_log=False)
 h = multiprocessing.JoinableQueue()
 f = multiprocessing.JoinableQueue()
 scale = multiprocessing.JoinableQueue()
+result = multiprocessing.JoinableQueue()
 
 
 class vision():
-    def vision(h, f, scale):
+    def vision(h, f, scale, result):
         lower_climb = np.array([53, 184, 182])
         upper_climb = np.array([55, 186, 184])
         camera = bettercam.create(output_color="BGR")
@@ -44,6 +45,7 @@ class vision():
                 contours, _ = cv2.findContours(climb_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
                 if len(contours) > 1 and keyboard.is_pressed('q'):
                     pyKey.press(key='r', sec=0.1)
+                result.join()
                 f.join()
                 h.join()
                 scale.join()
@@ -63,11 +65,11 @@ class vision():
             nocargo_mask = cv2.inRange(hsv, lower_nocargo, upper_nocargo)
             gcargo_mask = cv2.inRange(hsv, lower_gcargo, upper_gcargo)
             if np.any(nocargo_mask):
-                result['cargo_count'] = 0
+                result.put(['c', 0])
             elif np.any(ycargo_mask):
-                result['cargo_count'] = 1
+                result.put(['c', 1])
             elif np.any(gcargo_mask):
-                result['cargo_count'] = 2
+                result.put(['c', 2])
             scale.task_done()
 
     def robot(h, result):
@@ -90,13 +92,11 @@ class vision():
                 rect = cv2.minAreaRect(all_points)
                 box = cv2.boxPoints(rect)
                 box = np.intp(box)
-                result['bumper_box'] = box
                 M = cv2.moments(box)
                 cX = int(M["m10"] / M["m00"])
                 cY = int(M["m01"] / M["m00"])
-                result['robot_center'] = (cX, cY)
-
-            intake_mask = intake_mask|intake_mask2
+                result.put(['r', (cX, cY)])
+            intake_mask = intake_mask | intake_mask2
             intake_mask = intake_mask[0:540, 0:1280]
             contours, _ = cv2.findContours(intake_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
             if contours:
@@ -106,23 +106,17 @@ class vision():
                     box = cv2.boxPoints(rect)
                     box = np.intp(box)
                     longest_side = max(np.linalg.norm(box[i] - box[(i + 1) % 4]) for i in range(4))
-                    result['intake_box'] = box
-
                     for i in range(4):
                         p1, p2 = box[i], box[(i + 1) % 4]
                         side_length = np.linalg.norm(p1 - p2)
                         if side_length == longest_side:
-                            result['intake_side'] = tuple(p1), tuple(p2)
                             break
-
-            if contours:
                 intake_longest_side = max(cv2.arcLength(contour, True) for contour in contours)
                 for contour in contours:
                     if cv2.arcLength(contour, True) == intake_longest_side:
-                        rect = cv2.minAreaRect(contour)
                         angle_rad = math.atan2(p2[1] - p1[1], p2[0] - p1[0])
                         angle_deg = math.degrees(angle_rad)
-                        result['intake_angle'] = angle_deg
+                        result.put(['a', angle_deg])
             h.task_done()
 
     def red_balls(h, result):
@@ -137,10 +131,10 @@ class vision():
             pos = []
             if contours is not None:
                 for cnt in contours:
-                    (x,y),r = cv2.minEnclosingCircle(cnt)
+                    (x, y), r = cv2.minEnclosingCircle(cnt)
                     if int(r) <= 20:
                         pos.append((int(x), int(y), int(r)))
-                result['red_ball_pos'] = pos
+                result.put(['rb', pos])
             h.task_done()
 
     def blue_balls(h, result):
@@ -158,58 +152,8 @@ class vision():
                     (x, y), r = cv2.minEnclosingCircle(cnt)
                     if int(r) <= 20:
                         pos.append((int(x), int(y), int(r)))
-                    result['blue_ball_pos'] = pos
+                    result.put(['bb', pos])
             h.task_done()
-
-    def display(h, f, result):
-        cv2.namedWindow("Display", cv2.WINDOW_NORMAL)
-        while True:
-            frame = f.get()
-            if np.any(frame):
-                cargo_count = result['cargo_count']
-                # Display cargo count
-                if cargo_count == 0:
-                    text = 'No cargo detected'
-                elif cargo_count == 1:
-                    text = '1 cargo'
-                else:
-                    text = '2 cargo'
-                cv2.putText(frame, text, org, font, fontScale, color, thickness, cv2.LINE_AA)
-
-                if np.any(result['robot_center']) and np.any(result['intake_angle']):
-                    cX, cY = result['robot_center']
-                    ray_length = 100
-                    angle_rad = math.radians(result['intake_angle'])
-                    p2_x = int(cX + ray_length * math.cos(angle_rad))
-                    p2_y = int(cY + ray_length * math.sin(angle_rad))
-                    cv2.line(frame, (cX, cY), (p2_x, p2_y), (50, 255, 255), 2)
-
-                    if np.any(result['bumper_box']):
-                        for i in result['bumper_box']:
-                            cv2.circle(frame, (i[0], i[1]), 10, (255, 255, 0), -1)
-                        cv2.drawContours(frame, [result['bumper_box']], 0, (255, 0, 0), 2)
-                        cv2.circle(frame, (cX, cY), 5, (36, 255, 12), -1)
-
-                if np.any(result['intake_box']):
-                    cv2.drawContours(frame, [result['intake_box']], 0, (0, 255, 0), 2)
-
-                if np.any(result['intake_side']):
-                    p1, p2 = result['intake_side']
-                    cv2.line(frame, p1, p2, (0, 0, 255), 2)
-                if np.any(result['red_ball_pos']):
-                    for x, y, r in result['red_ball_pos']:
-                        cv2.circle(frame, (x, y), r, (0, 255, 0), 4)
-                if np.any(result['blue_ball_pos']):
-                    for (x, y, r) in result['blue_ball_pos']:
-                        cv2.circle(frame, (x, y), r, (0, 255, 0), 4)
-                if np.any(result['climb_box']):
-                    for cnt in result['climb_box']:
-                        x, y, w, h = cv2.boundingRect(cnt)
-                        cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 0, 255), 2)
-                cv2.putText(frame, str(result['score']), (50, 100), font, fontScale, color, thickness, cv2.LINE_AA)
-                f.task_done()
-                cv2.waitKey(1)
-                cv2.imshow("Display", frame)
 
     def detectScore(h, result):
         while True:
@@ -217,59 +161,31 @@ class vision():
             frame = hsv[580:630, 440:690]
             score = ocr.ocr(frame, cls=True)
             try:
-                if np.any(result['red_ball_pos']):
-                    result['score'] = ''.join(c for c in score[0][0][1][0] if c.isdigit())
+                score = ''.join(c for c in score[0][0][1][0] if c.isdigit())
+                result.put(['s', score])
             except:
                 pass
             h.task_done()
 
-if __name__ == "__main__":
+
+def start():
     timestarted = False
     i = 0
-    result = multiprocessing.Manager().dict({
-        'robot_center': None,
-        'intake_angle': None,
-        'red_ball_pos': [],
-        'cargo_count': 0,
-        'blue_ball_pos': [],
-        'bumper_box': None,
-        'intake_box': None,
-        'intake_side': None,
-        'red_ball_box': None,
-        'climb_box': None,
-        'blue_ball_box': None,
-        'score': 0,
-    })
     try:
-        vision_thread = multiprocessing.Process(target=vision.vision, args=(h, f, scale))
+        vision_thread = multiprocessing.Process(target=vision.vision, args=(h, f, scale, result))
         cargo_thread = multiprocessing.Process(target=vision.cargo, args=(scale, result))
         robot_thread = multiprocessing.Process(target=vision.robot, args=(h, result))
         red_balls_thread = multiprocessing.Process(target=vision.red_balls, args=(h, result))
         blue_balls_thread = multiprocessing.Process(target=vision.blue_balls, args=(h, result))
-        display_thread = multiprocessing.Process(target=vision.display, args=(h, f, result))
         score_thread = multiprocessing.Process(target=vision.detectScore, args=(h, result))
         vision_thread.start()
         cargo_thread.start()
         robot_thread.start()
         red_balls_thread.start()
         blue_balls_thread.start()
-        display_thread.start()
         score_thread.start()
-        print(f"Vision alive: {vision_thread.is_alive()}, {vision_thread.pid} \nCargo alive: {cargo_thread.is_alive()}, {cargo_thread.pid} \nRobot alive: {robot_thread.is_alive()}, {robot_thread.pid} \nRed balls alive:  {red_balls_thread.is_alive()}, {red_balls_thread.pid} \nBlue balls alive: {blue_balls_thread.is_alive()}, {blue_balls_thread.pid} \nDisplay alive: {display_thread.is_alive()}, {display_thread.pid} \nScore Alive: {score_thread.is_alive()}, {score_thread.pid}")
-        start = None
-        while True:
-            if timestarted == False and np.any(result['red_ball_pos']):
-                start = time.time()
-                timestarted = True
-            if timestarted == True and time.time() - start > 175:
-                raise KeyboardInterrupt
-            i = i + 1
-            if i == 5000:
-                print(
-                    f"\nVision alive: {vision_thread.is_alive()}, {vision_thread.pid} \nCargo alive: {cargo_thread.is_alive()}, {cargo_thread.pid} \nRobot alive: {robot_thread.is_alive()}, {robot_thread.pid} \nRed balls alive:  {red_balls_thread.is_alive()}, {red_balls_thread.pid} \nBlue balls alive: {blue_balls_thread.is_alive()}, {blue_balls_thread.pid} \nDisplay alive: {display_thread.is_alive()}, {display_thread.pid} \nScore Alive: {score_thread.is_alive()}, {score_thread.pid}")
-                i = 0
-            time.sleep(0.001)
-
+        print(
+            f"Vision alive: {vision_thread.is_alive()}, {vision_thread.pid} \nCargo alive: {cargo_thread.is_alive()}, {cargo_thread.pid} \nRobot alive: {robot_thread.is_alive()}, {robot_thread.pid} \nRed balls alive:  {red_balls_thread.is_alive()}, {red_balls_thread.pid} \nBlue balls alive: {blue_balls_thread.is_alive()}, {blue_balls_thread.pid} \nScore Alive: {score_thread.is_alive()}, {score_thread.pid}")
     except KeyboardInterrupt:
         print('Exiting...')
         vision_thread.terminate()
@@ -277,10 +193,54 @@ if __name__ == "__main__":
         robot_thread.terminate()
         red_balls_thread.terminate()
         blue_balls_thread.terminate()
-        display_thread.terminate()
         score_thread.terminate()
         f.close()
         h.close()
         scale.close()
-        result._close()
+        result.close()
         cv2.destroyAllWindows()
+
+def get_env():
+    start = None
+    r=[]
+    r.append(result.get())
+    r.append(result.get())
+    r.append(result.get())
+    r.append(result.get())
+    r.append(result.get())
+    r.append(result.get())
+    r.append(result.get())
+    print(r)
+        # if r[0] == 'c':
+        #     cargo = r[1]
+        # elif r[0] == 'r':
+        #     center = r[1]
+        # elif r[0] == 'b':
+        #     robot = r[1]
+        # elif r[0] == 'a':
+        #     angle = r[1]
+        # elif r[0] == 'rb':
+        #     red_ball_pos = r[1]
+        # elif r[0] == 'bb':
+        #     blue_ball_pos = r[1]
+        # elif r[0] == 's':
+        #     score = r[1]
+    if timestarted == False and np.any(red_ball_pos):
+        start = time.time()
+        timestarted = True
+    if timestarted == True and time.time() - start > 175:
+        raise KeyboardInterrupt
+    result.task_done()
+    result.task_done()
+    result.task_done()
+    result.task_done()
+    result.task_done()
+    result.task_done()
+    result.task_done()
+
+
+
+if __name__ == '__main__':
+    start()
+    while True:
+        get_env()
