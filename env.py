@@ -74,14 +74,16 @@ class vision():
         lower_bumper_red = np.array([0, 169, 167])
         upper_bumper_red = np.array([40, 180, 222])
         lower_intake = np.array([0, 0, 0])
-        upper_intake = np.array([15, 15, 15])
+        upper_intake = np.array([60, 60, 60])
+        lower_intake2 = np.array([20, 190, 120])
+        upper_intake2 = np.array([55, 215, 160])
         while True:
             hsv = h.get()
             bumper_mask = cv2.inRange(hsv, lower_bumper_red, upper_bumper_red)
             bumper_mask = cv2.erode(bumper_mask, kernel, iterations=1)
             bumper_mask = cv2.dilate(bumper_mask, kernel, iterations=1)
             intake_mask = cv2.inRange(hsv, lower_intake, upper_intake)
-
+            intake_mask2 = cv2.inRange(hsv, lower_intake2, upper_intake2)
             contours, _ = cv2.findContours(bumper_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
             if contours:
                 all_points = np.concatenate(contours)
@@ -94,6 +96,8 @@ class vision():
                 cY = int(M["m01"] / M["m00"])
                 result['robot_center'] = (cX, cY)
 
+            intake_mask = intake_mask|intake_mask2
+            intake_mask = intake_mask[0:540, 0:1280]
             contours, _ = cv2.findContours(intake_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
             if contours:
                 all_points = np.concatenate(contours)
@@ -133,12 +137,9 @@ class vision():
             pos = []
             if contours is not None:
                 for cnt in contours:
-                    radius = int(math.sqrt(cv2.contourArea(cnt)) / 2)
-                    if radius <= 15:
-                        M = cv2.moments(cnt)
-                        cX = int(M["m10"] / M["m00"])
-                        cY = int(M["m01"] / M["m00"])
-                        pos.append((cX, cY, radius))
+                    (x,y),r = cv2.minEnclosingCircle(cnt)
+                    if int(r) <= 20:
+                        pos.append((int(x), int(y), int(r)))
                 result['red_ball_pos'] = pos
             h.task_done()
 
@@ -154,12 +155,9 @@ class vision():
             pos = []
             if contours is not None:
                 for cnt in contours:
-                    radius = int(math.sqrt(cv2.contourArea(cnt)) / 2)
-                    if radius <= 15:
-                        M = cv2.moments(cnt)
-                        cX = int(M["m10"] / M["m00"])
-                        cY = int(M["m01"] / M["m00"])
-                        pos.append((cX, cY, radius))
+                    (x, y), r = cv2.minEnclosingCircle(cnt)
+                    if int(r) <= 20:
+                        pos.append((int(x), int(y), int(r)))
                     result['blue_ball_pos'] = pos
             h.task_done()
 
@@ -186,11 +184,11 @@ class vision():
                     p2_y = int(cY + ray_length * math.sin(angle_rad))
                     cv2.line(frame, (cX, cY), (p2_x, p2_y), (50, 255, 255), 2)
 
-                if np.any(result['bumper_box']):
-                    for i in result['bumper_box']:
-                        cv2.circle(frame, (i[0], i[1]), 10, (255, 255, 0), -1)
-                    cv2.drawContours(frame, [result['bumper_box']], 0, (255, 0, 0), 2)
-                    cv2.circle(frame, (cX, cY), 5, (36, 255, 12), -1)
+                    if np.any(result['bumper_box']):
+                        for i in result['bumper_box']:
+                            cv2.circle(frame, (i[0], i[1]), 10, (255, 255, 0), -1)
+                        cv2.drawContours(frame, [result['bumper_box']], 0, (255, 0, 0), 2)
+                        cv2.circle(frame, (cX, cY), 5, (36, 255, 12), -1)
 
                 if np.any(result['intake_box']):
                     cv2.drawContours(frame, [result['intake_box']], 0, (0, 255, 0), 2)
@@ -225,7 +223,6 @@ class vision():
                 pass
             h.task_done()
 
-
 if __name__ == "__main__":
     timestarted = False
     i = 0
@@ -258,8 +255,7 @@ if __name__ == "__main__":
         blue_balls_thread.start()
         display_thread.start()
         score_thread.start()
-        print(
-            f"Vision alive: {vision_thread.is_alive()}, {vision_thread.pid} \nCargo alive: {cargo_thread.is_alive()}, {cargo_thread.pid} \nRobot alive: {robot_thread.is_alive()}, {robot_thread.pid} \nRed balls alive:  {red_balls_thread.is_alive()}, {red_balls_thread.pid} \nBlue balls alive: {blue_balls_thread.is_alive()}, {blue_balls_thread.pid} \nDisplay alive: {display_thread.is_alive()}, {display_thread.pid} \nScore Alive: {score_thread.is_alive()}, {score_thread.pid}")
+        print(f"Vision alive: {vision_thread.is_alive()}, {vision_thread.pid} \nCargo alive: {cargo_thread.is_alive()}, {cargo_thread.pid} \nRobot alive: {robot_thread.is_alive()}, {robot_thread.pid} \nRed balls alive:  {red_balls_thread.is_alive()}, {red_balls_thread.pid} \nBlue balls alive: {blue_balls_thread.is_alive()}, {blue_balls_thread.pid} \nDisplay alive: {display_thread.is_alive()}, {display_thread.pid} \nScore Alive: {score_thread.is_alive()}, {score_thread.pid}")
         start = None
         while True:
             if timestarted == False and np.any(result['red_ball_pos']):
