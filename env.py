@@ -18,13 +18,13 @@ kernel = np.ones((3, 3), np.uint8)
 ocr = PaddleOCR(lang='en', use_angle_cls=True, show_log=False)
 
 h = multiprocessing.JoinableQueue()
-f = multiprocessing.JoinableQueue()
 scale = multiprocessing.JoinableQueue()
 result = multiprocessing.JoinableQueue()
-
+flag = multiprocessing.Event()
+count = 0
 
 class vision():
-    def vision(h, f, scale, result):
+    def vision(h, scale, result, flag):
         lower_climb = np.array([53, 184, 182])
         upper_climb = np.array([55, 186, 184])
         camera = bettercam.create(output_color="BGR")
@@ -34,10 +34,9 @@ class vision():
                 start = time.time()
                 frame = frame.astype(np.uint8)
                 hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-                frame = cv2.resize(frame, (1152, 648), interpolation=cv2.INTER_LINEAR)
                 downscaled = cv2.resize(hsv, (1152, 648), interpolation=cv2.INTER_LINEAR)
-                f.put(frame)
                 scale.put(hsv)
+                h.put(downscaled)
                 h.put(downscaled)
                 h.put(downscaled)
                 h.put(downscaled)
@@ -45,10 +44,10 @@ class vision():
                 contours, _ = cv2.findContours(climb_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
                 if len(contours) > 1 and keyboard.is_pressed('q'):
                     pyKey.press(key='r', sec=0.1)
-                result.join()
-                f.join()
                 h.join()
                 scale.join()
+                flag.set()
+                result.join()
                 sys.stdout.write(f"\r{1 / (time.time() - start)}")
                 sys.stdout.flush()
 
@@ -71,6 +70,7 @@ class vision():
             elif np.any(gcargo_mask):
                 result.put(['c', 2])
             scale.task_done()
+            result.join()
 
     def robot(h, result):
         lower_bumper_red = np.array([0, 169, 167])
@@ -95,7 +95,8 @@ class vision():
                 M = cv2.moments(box)
                 cX = int(M["m10"] / M["m00"])
                 cY = int(M["m01"] / M["m00"])
-                result.put(['r', (cX, cY)])
+                result.put(['c', (cX, cY)])
+
             intake_mask = intake_mask | intake_mask2
             intake_mask = intake_mask[0:540, 0:1280]
             contours, _ = cv2.findContours(intake_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
@@ -106,18 +107,23 @@ class vision():
                     box = cv2.boxPoints(rect)
                     box = np.intp(box)
                     longest_side = max(np.linalg.norm(box[i] - box[(i + 1) % 4]) for i in range(4))
+
                     for i in range(4):
                         p1, p2 = box[i], box[(i + 1) % 4]
                         side_length = np.linalg.norm(p1 - p2)
                         if side_length == longest_side:
                             break
+
+            if contours:
                 intake_longest_side = max(cv2.arcLength(contour, True) for contour in contours)
                 for contour in contours:
                     if cv2.arcLength(contour, True) == intake_longest_side:
+                        rect = cv2.minAreaRect(contour)
                         angle_rad = math.atan2(p2[1] - p1[1], p2[0] - p1[0])
                         angle_deg = math.degrees(angle_rad)
                         result.put(['a', angle_deg])
             h.task_done()
+            result.join()
 
     def red_balls(h, result):
         lower_red = np.array([1, 202, 236])
@@ -136,6 +142,7 @@ class vision():
                         pos.append((int(x), int(y), int(r)))
                 result.put(['rb', pos])
             h.task_done()
+            result.join()
 
     def blue_balls(h, result):
         lower_blue = np.array([101, 244, 178])
@@ -154,6 +161,7 @@ class vision():
                         pos.append((int(x), int(y), int(r)))
                     result.put(['bb', pos])
             h.task_done()
+            result.join()
 
     def detectScore(h, result):
         while True:
@@ -166,13 +174,13 @@ class vision():
             except:
                 pass
             h.task_done()
+            result.join()
 
 
 def start():
-    timestarted = False
     i = 0
     try:
-        vision_thread = multiprocessing.Process(target=vision.vision, args=(h, f, scale, result))
+        vision_thread = multiprocessing.Process(target=vision.vision, args=(h, scale, result, flag))
         cargo_thread = multiprocessing.Process(target=vision.cargo, args=(scale, result))
         robot_thread = multiprocessing.Process(target=vision.robot, args=(h, result))
         red_balls_thread = multiprocessing.Process(target=vision.red_balls, args=(h, result))
@@ -194,53 +202,54 @@ def start():
         red_balls_thread.terminate()
         blue_balls_thread.terminate()
         score_thread.terminate()
-        f.close()
         h.close()
         scale.close()
         result.close()
         cv2.destroyAllWindows()
 
-def get_env():
+def get_env(timestarted):
     start = None
-    r=[]
-    r.append(result.get())
-    r.append(result.get())
-    r.append(result.get())
-    r.append(result.get())
-    r.append(result.get())
-    r.append(result.get())
-    r.append(result.get())
-    print(r)
-        # if r[0] == 'c':
-        #     cargo = r[1]
-        # elif r[0] == 'r':
-        #     center = r[1]
-        # elif r[0] == 'b':
-        #     robot = r[1]
-        # elif r[0] == 'a':
-        #     angle = r[1]
-        # elif r[0] == 'rb':
-        #     red_ball_pos = r[1]
-        # elif r[0] == 'bb':
-        #     blue_ball_pos = r[1]
-        # elif r[0] == 's':
-        #     score = r[1]
+    count = 0
+    cargo = None
+    center = None
+    robot = None
+    angle = None
+    red_ball_pos = None
+    blue_ball_pos = None
+    score = None
+    while not flag.is_set():
+        pass
+    qsize = result.qsize()
+    while count < qsize:
+        r = result.get()
+        if r[0] == 'c':
+            cargo = r[1]
+        elif r[0] == 'r':
+            center = r[1]
+        elif r[0] == 'b':
+            robot = r[1]
+        elif r[0] == 'a':
+            angle = r[1]
+        elif r[0] == 'rb':
+            red_ball_pos = r[1]
+        elif r[0] == 'bb':
+            blue_ball_pos = r[1]
+        elif r[0] == 's':
+            score = r[1]
+        count += 1
+    flag.clear()
     if timestarted == False and np.any(red_ball_pos):
         start = time.time()
         timestarted = True
     if timestarted == True and time.time() - start > 175:
         raise KeyboardInterrupt
-    result.task_done()
-    result.task_done()
-    result.task_done()
-    result.task_done()
-    result.task_done()
-    result.task_done()
-    result.task_done()
-
-
+    i = 0
+    while i < qsize:
+        result.task_done()
+        i+=1
 
 if __name__ == '__main__':
+    timestarted = False
     start()
     while True:
-        get_env()
+        get_env(timestarted)
