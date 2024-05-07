@@ -15,16 +15,17 @@ fontScale = 1
 color = (255, 0, 0)
 thickness = 2
 kernel = np.ones((3, 3), np.uint8)
-ocr = PaddleOCR(lang='en' ,use_angle_cls = True, show_log=False)
+ocr = PaddleOCR(lang='en', use_angle_cls=True, show_log=False)
 
 h = multiprocessing.JoinableQueue()
 f = multiprocessing.JoinableQueue()
 scale = multiprocessing.JoinableQueue()
 
+
 class vision():
     def vision(h, f, scale):
-        lower_climb = np.array([53,186,182])
-        upper_climb = np.array([55,186,184])
+        lower_climb = np.array([53, 184, 182])
+        upper_climb = np.array([55, 186, 184])
         camera = bettercam.create(output_color="BGR")
         while True:
             frame = np.array(camera.grab())
@@ -41,13 +42,14 @@ class vision():
                 h.put(downscaled)
                 climb_mask = cv2.inRange(hsv, lower_climb, upper_climb)
                 contours, _ = cv2.findContours(climb_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-                if np.any(hsv) and keyboard.is_pressed('q') and len(contours) > 1:
-                    pyKey.press(key='r',sec=0.1)
+                if len(contours) > 1 and keyboard.is_pressed('q'):
+                    pyKey.press(key='r', sec=0.1)
                 f.join()
                 h.join()
                 scale.join()
-                sys.stdout.write(f"\r{1/(time.time() - start)}")
+                sys.stdout.write(f"\r{1 / (time.time() - start)}")
                 sys.stdout.flush()
+
     def cargo(scale, result):
         lower_nocargo = np.array([0, 150, 144])
         upper_nocargo = np.array([1, 152, 146])
@@ -67,6 +69,7 @@ class vision():
             elif np.any(gcargo_mask):
                 result['cargo_count'] = 2
             scale.task_done()
+
     def robot(h, result):
         lower_bumper_red = np.array([0, 169, 167])
         upper_bumper_red = np.array([40, 180, 222])
@@ -117,34 +120,49 @@ class vision():
                         angle_deg = math.degrees(angle_rad)
                         result['intake_angle'] = angle_deg
             h.task_done()
+
     def red_balls(h, result):
+        lower_red = np.array([1, 202, 236])
+        upper_red = np.array([3, 204, 238])
         while True:
-            lower_red = np.array([1, 202, 236])
-            upper_red = np.array([3, 204, 238])
             hsv = h.get()
             ball_mask = cv2.inRange(hsv, lower_red, upper_red)
+            ball_mask = cv2.erode(ball_mask, kernel, iterations=1)
+            ball_mask = cv2.dilate(ball_mask, kernel, iterations=1)
             contours, _ = cv2.findContours(ball_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
             pos = []
             if contours is not None:
                 for cnt in contours:
-                    M = cv2.moments(cv2.boundingRect(cnt))
-                    cX = int(M["m10"] / M["m00"])
-                    cY = int(M["m01"] / M["m00"])
-                    pos.append((cX, cY))
+                    radius = int(math.sqrt(cv2.contourArea(cnt)) / 2)
+                    if radius <= 15:
+                        M = cv2.moments(cnt)
+                        cX = int(M["m10"] / M["m00"])
+                        cY = int(M["m01"] / M["m00"])
+                        pos.append((cX, cY, radius))
                 result['red_ball_pos'] = pos
             h.task_done()
+
     def blue_balls(h, result):
         lower_blue = np.array([101, 244, 178])
         upper_blue = np.array([103, 246, 180])
         while True:
             hsv = h.get()
             ball_mask = cv2.inRange(hsv, lower_blue, upper_blue)
-            edges = cv2.Canny(ball_mask,100,200)
-            circles = cv2.HoughCircles(edges, cv2.HOUGH_GRADIENT, dp=1, minDist=1, param1=100, param2=25, minRadius=0, maxRadius=35)
-            if circles is not None:
-                circles = np.round(circles[0, :]).astype("int")
-                result['blue_ball_pos'] = [(x, y, r) for (x, y, r) in circles]
+            ball_mask = cv2.erode(ball_mask, kernel, iterations=1)
+            ball_mask = cv2.dilate(ball_mask, kernel, iterations=1)
+            contours, _ = cv2.findContours(ball_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            pos = []
+            if contours is not None:
+                for cnt in contours:
+                    radius = int(math.sqrt(cv2.contourArea(cnt)) / 2)
+                    if radius <= 15:
+                        M = cv2.moments(cnt)
+                        cX = int(M["m10"] / M["m00"])
+                        cY = int(M["m01"] / M["m00"])
+                        pos.append((cX, cY, radius))
+                    result['blue_ball_pos'] = pos
             h.task_done()
+
     def display(h, f, result):
         cv2.namedWindow("Display", cv2.WINDOW_NORMAL)
         while True:
@@ -180,20 +198,21 @@ class vision():
                 if np.any(result['intake_side']):
                     p1, p2 = result['intake_side']
                     cv2.line(frame, p1, p2, (0, 0, 255), 2)
-                if np.any(result['red_ball_box']):
-                    for (x, y) in result['red_ball_pos']:
-                        cv2.circle(frame, (x, y), 35, (0, 255, 0), 4)
-                if np.any(result['blue_ball_box']):
+                if np.any(result['red_ball_pos']):
+                    for x, y, r in result['red_ball_pos']:
+                        cv2.circle(frame, (x, y), r, (0, 255, 0), 4)
+                if np.any(result['blue_ball_pos']):
                     for (x, y, r) in result['blue_ball_pos']:
                         cv2.circle(frame, (x, y), r, (0, 255, 0), 4)
                 if np.any(result['climb_box']):
                     for cnt in result['climb_box']:
-                                x,y,w,h = cv2.boundingRect(cnt)
-                                cv2.rectangle(frame,(x,y),(x+w,y+h),(0,0,255),2)
-                cv2.putText(frame, str(result['score']), (50,100), font, fontScale, color, thickness, cv2.LINE_AA)
+                        x, y, w, h = cv2.boundingRect(cnt)
+                        cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 0, 255), 2)
+                cv2.putText(frame, str(result['score']), (50, 100), font, fontScale, color, thickness, cv2.LINE_AA)
                 f.task_done()
                 cv2.waitKey(1)
                 cv2.imshow("Display", frame)
+
     def detectScore(h, result):
         while True:
             hsv = h.get()
@@ -206,9 +225,10 @@ class vision():
                 pass
             h.task_done()
 
+
 if __name__ == "__main__":
     timestarted = False
-    i=0
+    i = 0
     result = multiprocessing.Manager().dict({
         'robot_center': None,
         'intake_angle': None,
@@ -238,7 +258,8 @@ if __name__ == "__main__":
         blue_balls_thread.start()
         display_thread.start()
         score_thread.start()
-        print(f"Vision alive: {vision_thread.is_alive()}, {vision_thread.pid} \nCargo alive: {cargo_thread.is_alive()}, {cargo_thread.pid} \nRobot alive: {robot_thread.is_alive()}, {robot_thread.pid} \nRed balls alive:  {red_balls_thread.is_alive()}, {red_balls_thread.pid} \nBlue balls alive: {blue_balls_thread.is_alive()}, {blue_balls_thread.pid} \nDisplay alive: {display_thread.is_alive()}, {display_thread.pid} \nScore Alive: {score_thread.is_alive()}, {score_thread.pid}")
+        print(
+            f"Vision alive: {vision_thread.is_alive()}, {vision_thread.pid} \nCargo alive: {cargo_thread.is_alive()}, {cargo_thread.pid} \nRobot alive: {robot_thread.is_alive()}, {robot_thread.pid} \nRed balls alive:  {red_balls_thread.is_alive()}, {red_balls_thread.pid} \nBlue balls alive: {blue_balls_thread.is_alive()}, {blue_balls_thread.pid} \nDisplay alive: {display_thread.is_alive()}, {display_thread.pid} \nScore Alive: {score_thread.is_alive()}, {score_thread.pid}")
         start = None
         while True:
             if timestarted == False and np.any(result['red_ball_pos']):
@@ -246,10 +267,11 @@ if __name__ == "__main__":
                 timestarted = True
             if timestarted == True and time.time() - start > 175:
                 raise KeyboardInterrupt
-            i=i+1
+            i = i + 1
             if i == 5000:
-                print(f"\nVision alive: {vision_thread.is_alive()}, {vision_thread.pid} \nCargo alive: {cargo_thread.is_alive()}, {cargo_thread.pid} \nRobot alive: {robot_thread.is_alive()}, {robot_thread.pid} \nRed balls alive:  {red_balls_thread.is_alive()}, {red_balls_thread.pid} \nBlue balls alive: {blue_balls_thread.is_alive()}, {blue_balls_thread.pid} \nDisplay alive: {display_thread.is_alive()}, {display_thread.pid} \nScore Alive: {score_thread.is_alive()}, {score_thread.pid}")
-                i=0
+                print(
+                    f"\nVision alive: {vision_thread.is_alive()}, {vision_thread.pid} \nCargo alive: {cargo_thread.is_alive()}, {cargo_thread.pid} \nRobot alive: {robot_thread.is_alive()}, {robot_thread.pid} \nRed balls alive:  {red_balls_thread.is_alive()}, {red_balls_thread.pid} \nBlue balls alive: {blue_balls_thread.is_alive()}, {blue_balls_thread.pid} \nDisplay alive: {display_thread.is_alive()}, {display_thread.pid} \nScore Alive: {score_thread.is_alive()}, {score_thread.pid}")
+                i = 0
             time.sleep(0.001)
 
     except KeyboardInterrupt:
