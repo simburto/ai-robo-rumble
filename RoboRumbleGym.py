@@ -217,11 +217,13 @@ class RoboRumbleEnv(gym.Env):
     def __init__(self):
         super().__init__()
         self.action_space = spaces.Discrete(7)
-        vision_thread.start()
-        cargo_thread.start()
-        robot_thread.start()
-        red_balls_thread.start()
-        blue_balls_thread.start()
+        if __name__ == '__main__':
+            multiprocessing.freeze_support()
+            vision_thread.start()
+            cargo_thread.start()
+            robot_thread.start()
+            red_balls_thread.start()
+            blue_balls_thread.start()
         self.observation_space = spaces.Dict(
             {
                 "cargo": spaces.Discrete(3, start=0),
@@ -246,8 +248,8 @@ class RoboRumbleEnv(gym.Env):
         terminated = np.array_equal(self._agent_location, self._target_location)
         observation = _get_obs()
         cargo = observation['cargo']
-        cargoDiff = prevCargo - cargo
         global prevCargo
+        cargoDiff = prevCargo - cargo
         prevCargo = cargo
         if cargoDiff == 0:
             reward = -1
