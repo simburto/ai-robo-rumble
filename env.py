@@ -7,7 +7,6 @@ import bettercam
 import multiprocessing
 import keyboard
 import sys
-from paddleocr import PaddleOCR
 
 font = cv2.FONT_HERSHEY_SIMPLEX
 org = (50, 50)
@@ -15,13 +14,13 @@ fontScale = 1
 color = (255, 0, 0)
 thickness = 2
 kernel = np.ones((3, 3), np.uint8)
-ocr = PaddleOCR(lang='en', use_angle_cls=True, show_log=False)
 
 h = multiprocessing.JoinableQueue()
 scale = multiprocessing.JoinableQueue()
 result = multiprocessing.JoinableQueue()
 flag = multiprocessing.Event()
 count = 0
+
 
 class vision():
     def vision(h, scale, result, flag):
@@ -36,7 +35,6 @@ class vision():
                 hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
                 downscaled = cv2.resize(hsv, (1152, 648), interpolation=cv2.INTER_LINEAR)
                 scale.put(hsv)
-                h.put(downscaled)
                 h.put(downscaled)
                 h.put(downscaled)
                 h.put(downscaled)
@@ -163,19 +161,6 @@ class vision():
             h.task_done()
             result.join()
 
-    def detectScore(h, result):
-        while True:
-            hsv = h.get()
-            frame = hsv[580:630, 440:690]
-            score = ocr.ocr(frame, cls=True)
-            try:
-                score = ''.join(c for c in score[0][0][1][0] if c.isdigit())
-                result.put(['s', score])
-            except:
-                pass
-            h.task_done()
-            result.join()
-
 
 def start():
     i = 0
@@ -185,15 +170,13 @@ def start():
         robot_thread = multiprocessing.Process(target=vision.robot, args=(h, result))
         red_balls_thread = multiprocessing.Process(target=vision.red_balls, args=(h, result))
         blue_balls_thread = multiprocessing.Process(target=vision.blue_balls, args=(h, result))
-        score_thread = multiprocessing.Process(target=vision.detectScore, args=(h, result))
         vision_thread.start()
         cargo_thread.start()
         robot_thread.start()
         red_balls_thread.start()
         blue_balls_thread.start()
-        score_thread.start()
         print(
-            f"Vision alive: {vision_thread.is_alive()}, {vision_thread.pid} \nCargo alive: {cargo_thread.is_alive()}, {cargo_thread.pid} \nRobot alive: {robot_thread.is_alive()}, {robot_thread.pid} \nRed balls alive:  {red_balls_thread.is_alive()}, {red_balls_thread.pid} \nBlue balls alive: {blue_balls_thread.is_alive()}, {blue_balls_thread.pid} \nScore Alive: {score_thread.is_alive()}, {score_thread.pid}")
+            f'Vision alive: {vision_thread.is_alive()}, {vision_thread.pid} \nCargo alive: {cargo_thread.is_alive()}, {cargo_thread.pid} \nRobot alive: {robot_thread.is_alive()}, {robot_thread.pid} \nRed balls alive:  {red_balls_thread.is_alive()}, {red_balls_thread.pid} \nBlue balls alive: {blue_balls_thread.is_alive()}, {blue_balls_thread.pid}')
     except KeyboardInterrupt:
         print('Exiting...')
         vision_thread.terminate()
@@ -201,11 +184,11 @@ def start():
         robot_thread.terminate()
         red_balls_thread.terminate()
         blue_balls_thread.terminate()
-        score_thread.terminate()
         h.close()
         scale.close()
         result.close()
         cv2.destroyAllWindows()
+
 
 def get_env(timestarted):
     start = None
@@ -216,7 +199,6 @@ def get_env(timestarted):
     angle = None
     red_ball_pos = None
     blue_ball_pos = None
-    score = None
     while not flag.is_set():
         pass
     qsize = result.qsize()
@@ -234,8 +216,6 @@ def get_env(timestarted):
             red_ball_pos = r[1]
         elif r[0] == 'bb':
             blue_ball_pos = r[1]
-        elif r[0] == 's':
-            score = r[1]
         count += 1
     flag.clear()
     if timestarted == False and np.any(red_ball_pos):
@@ -246,7 +226,9 @@ def get_env(timestarted):
     i = 0
     while i < qsize:
         result.task_done()
-        i+=1
+        i += 1
+    return [cargo, center, robot, angle, red_ball_pos, blue_ball_pos]
+
 
 if __name__ == '__main__':
     timestarted = False
