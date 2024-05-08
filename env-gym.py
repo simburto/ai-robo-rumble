@@ -7,6 +7,8 @@ import bettercam
 import multiprocessing
 import keyboard
 import sys
+import gymnasium as gym
+from gymnasium import spaces
 
 font = cv2.FONT_HERSHEY_SIMPLEX
 org = (50, 50)
@@ -19,10 +21,9 @@ h = multiprocessing.JoinableQueue()
 scale = multiprocessing.JoinableQueue()
 result = multiprocessing.JoinableQueue()
 flag = multiprocessing.Event()
-count = 0
 
 
-class vision():
+class Vision:
     def vision(h, scale, result, flag):
         lower_climb = np.array([53, 184, 182])
         upper_climb = np.array([55, 186, 184])
@@ -50,22 +51,22 @@ class vision():
                 sys.stdout.flush()
 
     def cargo(scale, result):
-        lower_nocargo = np.array([0, 150, 144])
-        upper_nocargo = np.array([1, 152, 146])
-        lower_ycargo = np.array([25, 220, 120])
-        upper_ycargo = np.array([35, 230, 130])
-        lower_gcargo = np.array([70, 202, 152])
-        upper_gcargo = np.array([72, 204, 154])
+        lower_noCargo = np.array([0, 150, 144])
+        upper_noCargo = np.array([1, 152, 146])
+        lower_yCargo = np.array([25, 220, 120])
+        upper_yCargo = np.array([35, 230, 130])
+        lower_gCargo = np.array([70, 202, 152])
+        upper_gCargo = np.array([72, 204, 154])
         while True:
             hsv = scale.get()
-            ycargo_mask = cv2.inRange(hsv, lower_ycargo, upper_ycargo)
-            nocargo_mask = cv2.inRange(hsv, lower_nocargo, upper_nocargo)
-            gcargo_mask = cv2.inRange(hsv, lower_gcargo, upper_gcargo)
-            if np.any(nocargo_mask):
+            yCargo_mask = cv2.inRange(hsv, lower_yCargo, upper_yCargo)
+            noCargo_mask = cv2.inRange(hsv, lower_noCargo, upper_noCargo)
+            gCargo_mask = cv2.inRange(hsv, lower_gCargo, upper_gCargo)
+            if np.any(noCargo_mask):
                 result.put(['c', 0])
-            elif np.any(ycargo_mask):
+            elif np.any(yCargo_mask):
                 result.put(['c', 1])
-            elif np.any(gcargo_mask):
+            elif np.any(gCargo_mask):
                 result.put(['c', 2])
             scale.task_done()
             result.join()
@@ -93,7 +94,7 @@ class vision():
                 M = cv2.moments(box)
                 cX = int(M["m10"] / M["m00"])
                 cY = int(M["m01"] / M["m00"])
-                result.put(['c', (cX, cY)])
+                result.put(['r', (cX, cY)])
 
             intake_mask = intake_mask | intake_mask2
             intake_mask = intake_mask[0:540, 0:1280]
@@ -116,7 +117,6 @@ class vision():
                 intake_longest_side = max(cv2.arcLength(contour, True) for contour in contours)
                 for contour in contours:
                     if cv2.arcLength(contour, True) == intake_longest_side:
-                        rect = cv2.minAreaRect(contour)
                         angle_rad = math.atan2(p2[1] - p1[1], p2[0] - p1[0])
                         angle_deg = math.degrees(angle_rad)
                         result.put(['a', angle_deg])
@@ -162,39 +162,21 @@ class vision():
             result.join()
 
 
-def start():
-    i = 0
-    try:
-        vision_thread = multiprocessing.Process(target=vision.vision, args=(h, scale, result, flag))
-        cargo_thread = multiprocessing.Process(target=vision.cargo, args=(scale, result))
-        robot_thread = multiprocessing.Process(target=vision.robot, args=(h, result))
-        red_balls_thread = multiprocessing.Process(target=vision.red_balls, args=(h, result))
-        blue_balls_thread = multiprocessing.Process(target=vision.blue_balls, args=(h, result))
-        vision_thread.start()
-        cargo_thread.start()
-        robot_thread.start()
-        red_balls_thread.start()
-        blue_balls_thread.start()
-        print(
-            f'Vision alive: {vision_thread.is_alive()}, {vision_thread.pid} \nCargo alive: {cargo_thread.is_alive()}, {cargo_thread.pid} \nRobot alive: {robot_thread.is_alive()}, {robot_thread.pid} \nRed balls alive:  {red_balls_thread.is_alive()}, {red_balls_thread.pid} \nBlue balls alive: {blue_balls_thread.is_alive()}, {blue_balls_thread.pid}')
-    except KeyboardInterrupt:
-        print('Exiting...')
-        vision_thread.terminate()
-        cargo_thread.terminate()
-        robot_thread.terminate()
-        red_balls_thread.terminate()
-        blue_balls_thread.terminate()
-        h.close()
-        scale.close()
-        result.close()
+vision_thread = multiprocessing.Process(target=Vision.vision, args=(h, scale, result, flag))
+cargo_thread = multiprocessing.Process(target=Vision.cargo, args=(scale, result))
+robot_thread = multiprocessing.Process(target=Vision.robot, args=(h, result))
+red_balls_thread = multiprocessing.Process(target=Vision.red_balls, args=(h, result))
+blue_balls_thread = multiprocessing.Process(target=Vision.blue_balls, args=(h, result))
+timeStarted = False
+prevCargo = 0
+count = 0
 
 
-def get_env(timestarted):
+def _get_obs():
     start = None
     count = 0
     cargo = None
     center = None
-    robot = None
     angle = None
     red_ball_pos = None
     blue_ball_pos = None
@@ -207,8 +189,6 @@ def get_env(timestarted):
             cargo = r[1]
         elif r[0] == 'r':
             center = r[1]
-        elif r[0] == 'b':
-            robot = r[1]
         elif r[0] == 'a':
             angle = r[1]
         elif r[0] == 'rb':
@@ -217,20 +197,87 @@ def get_env(timestarted):
             blue_ball_pos = r[1]
         count += 1
     flag.clear()
-    if timestarted == False and np.any(red_ball_pos):
+    global timeStarted
+    if timeStarted is False and np.any(red_ball_pos):
         start = time.time()
-        timestarted = True
-    if timestarted == True and time.time() - start > 175:
-        raise KeyboardInterrupt
+        timeStarted = True
     i = 0
     while i < qsize:
         result.task_done()
         i += 1
-    return [cargo, center, robot, angle, red_ball_pos, blue_ball_pos]
+    return {"cargo": cargo, "center": center, "angle": angle, "red_ball_pos": red_ball_pos,
+            "blue_ball_pos": blue_ball_pos, "time": time.time() - start}
 
 
-if __name__ == '__main__':
+class RoboRumbleEnv(gym.Env):
+    """Custom Environment that follows gym interface."""
     timeStarted = False
-    start()
-    while True:
-        get_env(timeStarted)
+    metadata = {"render_modes": ["human"], "render_fps": 30}
+
+    def __init__(self):
+        super().__init__()
+        self.action_space = spaces.Discrete(7)
+        vision_thread.start()
+        cargo_thread.start()
+        robot_thread.start()
+        red_balls_thread.start()
+        blue_balls_thread.start()
+        self.observation_space = spaces.Dict(
+            {
+                "cargo": spaces.Discrete(3, start=0),
+                "center": spaces.Box(low=np.array([0, 0]), high=np.array([1280, 720]), shape=(2,)),
+                "angle": spaces.Box(low=-180, high=180, shape=(1,)),
+                "red_ball_pos": spaces.Sequence(
+                    spaces.Box(low=np.array([0, 0]), high=np.array([1280, 720]), shape=(2,))),
+                "blue_ball_pos": spaces.Sequence(
+                    spaces.Box(low=np.array([0, 0]), high=np.array([1280, 720]), shape=(2,))),
+                "time": spaces.Box(low=0, high=180, shape=(1,)),
+            }
+        )
+
+    def step(self, action):
+        # Map the action (element of {0,1,2,3}) to the direction we walk in
+        direction = self._action_to_direction[action]
+        # We use `np.clip` to make sure we don't leave the grid
+        self._agent_location = np.clip(
+            self._agent_location + direction, 0, self.size - 1
+        )
+        # An episode is done iff the agent has reached the target
+        terminated = np.array_equal(self._agent_location, self._target_location)
+        observation = _get_obs()
+        cargo = observation['cargo']
+        cargoDiff = prevCargo - cargo
+        global prevCargo
+        prevCargo = cargo
+        if cargoDiff == 0:
+            reward = -1
+        else:
+            reward = abs(cargoDiff)
+        if observation['time'] > 175:
+            terminated = True
+        info = None
+        return observation, reward, terminated, False, info
+
+    def reset(self, seed=None, options=None):
+        time.sleep(3)
+        pyKey.press('SPACEBAR', sec=0.3)
+        time.sleep(2)
+        pyKey.press('r', sec=0.3)
+        time.sleep(1)
+        global timeStarted
+        global prevCargo
+        timeStarted = False
+        prevCargo = 0
+        observation = _get_obs()
+        info = None
+        return observation, info
+
+    def close(self):
+        vision_thread.terminate()
+        cargo_thread.terminate()
+        robot_thread.terminate()
+        red_balls_thread.terminate()
+        blue_balls_thread.terminate()
+        h.close()
+        scale.close()
+        result.close()
