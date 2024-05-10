@@ -7,7 +7,6 @@ import bettercam
 import multiprocessing
 import keyboard
 import gymnasium as gym
-import sys
 
 KERNEL = np.ones((3, 3), np.uint8)
 
@@ -111,6 +110,7 @@ class VisionEnv(gym.Env):
         while i < count:
             self.result.task_done()
             i+=1
+        print(climbed)
         return {
             "climbed": climbed,
             "time_started": self.time_started,
@@ -167,8 +167,8 @@ class VisionEnv(gym.Env):
                 self.scale.join()
                 self.flag.set()
                 self.result.join()
-                sys.stdout.write(f"\r{1 / (time.time() - start)}")
-                sys.stdout.flush()
+                # sys.stdout.write(f"\r{1 / (time.time() - start)}")
+                # sys.stdout.flush()
 
     def cargo(self):
         lower_nocargo = np.array([0, 150, 144])
@@ -298,6 +298,7 @@ if __name__ == "__main__":
     while True:
         observation, reward, terminated, random, info = env.step(0)
         total_reward = reward+total_reward
+        print(reward)
         if terminated:
             print(total_reward)
             break

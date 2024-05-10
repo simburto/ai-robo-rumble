@@ -20,6 +20,7 @@ scale = multiprocessing.JoinableQueue()
 result = multiprocessing.JoinableQueue()
 flag = multiprocessing.Event()
 count = 0
+prevPos = None
 
 
 class vision():
@@ -188,13 +189,11 @@ def start():
         scale.close()
         result.close()
 
-
-def get_env(timestarted):
+def _get_obs():
     start = None
     count = 0
     cargo = None
     center = None
-    robot = None
     angle = None
     red_ball_pos = None
     blue_ball_pos = None
@@ -207,8 +206,6 @@ def get_env(timestarted):
             cargo = r[1]
         elif r[0] == 'r':
             center = r[1]
-        elif r[0] == 'b':
-            robot = r[1]
         elif r[0] == 'a':
             angle = r[1]
         elif r[0] == 'rb':
@@ -217,16 +214,37 @@ def get_env(timestarted):
             blue_ball_pos = r[1]
         count += 1
     flag.clear()
-    if timestarted == False and np.any(red_ball_pos):
+    global timeStarted
+    if timeStarted is False and np.any(red_ball_pos):
         start = time.time()
-        timestarted = True
-    if timestarted == True and time.time() - start > 175:
-        raise KeyboardInterrupt
+        timeStarted = True
     i = 0
     while i < qsize:
         result.task_done()
         i += 1
-    return [cargo, center, robot, angle, red_ball_pos, blue_ball_pos]
+    return {"cargo": cargo, "center": center, "angle": angle, "red_ball_pos": red_ball_pos,
+            "blue_ball_pos": blue_ball_pos, "time": time.time() - start}
+
+def step(self, action):
+    terminated = np.array_equal(self._agent_location, self._target_location)
+    observation = _get_obs()
+    cargo = observation['cargo']
+    global prevCargo
+    cargoDiff = prevCargo - cargo
+    prevCargo = cargo
+    if cargoDiff == 0:
+        reward = -0.1
+    else:
+        reward = abs(cargoDiff)
+    movement = math.dist(prevPos, observation['center'])
+    if movement == 0:
+        reward = reward - 5
+    else:
+        reward = abs(movement) / 0.01
+    if observation['time'] > 175:
+        terminated = True
+    info = None
+    return observation, reward, terminated, False, info
 
 
 if __name__ == '__main__':
