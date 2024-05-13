@@ -1,21 +1,33 @@
-from RoboRumbleGym import VisionEnv
+# Import necessary libraries
+import gym
+import numpy as np
 from stable_baselines3 import PPO
-from stable_baselines3.common.env_util import make_vec_env
-import gymnasium as gym
 
+# Initialize the environment
+env = gym.make("your_env_name")
 
-# Parallel environments
-env = gym.make('RoboRumbleGym')
+# Define the observation space
+observation_space = env.observation_space
 
-model = PPO("MlpPolicy", env)
-model.learn(total_timesteps=25000)
-model.save("ppo_cartpole")
+# Define the action space
+action_space = env.action_space
 
-del model # remove to demonstrate saving and loading
+# Initialize the agent
+model = PPO(policy="MlpPolicy", env=env, verbose=1)
 
-model = PPO.load("ppo_cartpole")
+# Train the agent
+model.learn(total_timesteps=10000)
 
-obs = vec_env.reset()
-while True:
-    action, _states = model.predict(obs)
-    obs, rewards, dones, info = vec_env.step(action)
+# Save the agent
+model.save("ppo_model")
+
+# Load the agent
+loaded_model = PPO.load("ppo_model")
+
+# Test the agent
+for i in range(10):
+    state, done = env.reset(), False
+    while not done:
+        action = loaded_model.predict(state)
+        state, reward, done, info = env.step(action)
+        env.render()

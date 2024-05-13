@@ -1,18 +1,20 @@
 import cv2
 import numpy as np
 import math
-import pyKey
 import time
 import bettercam
 import multiprocessing
-import keyboard
+import pyautogui
 import gymnasium as gym
 import sys
+import keyboard
 
 KERNEL = np.ones((3, 3), np.uint8)
 
+
 class VisionEnv(gym.Env):
     def __init__(self):
+        super().__init__()
         self.h = multiprocessing.JoinableQueue()
         self.scale = multiprocessing.JoinableQueue()
         self.result = multiprocessing.JoinableQueue()
@@ -25,6 +27,15 @@ class VisionEnv(gym.Env):
         self.time_started = False
         self.start = None
         self.climb_reward_given = False
+        self.prev_action = None
+        self.started = False
+        self.action_dict = ['w', 'a', 's', 'd', 'f', 'g', 'q', (['w', 'a']), (['w', 'd']), (['s', 'a']), (['s', 'd']),
+                            (['w', 'f']), (['w', 'g']), (['s', 'f']), (['s', 'g']), (['d', 'f']), (['d', 'g']),
+                            (['a', 'f']), (['a', 'g']), (['w', 'a', 'f']), (['w', 'a', 'g']), (['w', 'd', 'f']),
+                            (['w', 'd', 'g']), (['s', 'a', 'f']), (['s', 'a', 'g']), (['s', 'd', 'f']),
+                            (['s', 'd', 'g']),
+                            ]
+        self.action_space = gym.spaces.Discrete(27)
         self.observation_space = gym.spaces.Dict({
             "cargo": gym.spaces.Discrete(3),
             "center": gym.spaces.Box(low=0, high=1280, shape=(2,)),
@@ -38,10 +49,20 @@ class VisionEnv(gym.Env):
         self.flag.clear()
         self.count = 0
         self.prev_pos = None
+        pyautogui.press('space')
+        time.sleep(2)
+        pyautogui.press('r')
+        if self.started is False:
+            self.run()
+            self.started = True
         observation = self._get_obs()
         return observation
 
     def step(self, action):
+        if self.prev_action:
+            pyautogui.keyUp(self.prev_action)
+        pyautogui.keyDown(self.action_dict[action])
+        self.prev_action = self.action_dict[action]
         terminated = False
         observation = self.ENV._get_obs()
         reward = 0
@@ -54,20 +75,20 @@ class VisionEnv(gym.Env):
             self.climb_reward_given = True
         if self.time_started is True and not observation['climbed']:
             if shoot_count:
-                reward = shoot_count**(shoot_count-1)
+                reward = shoot_count ** (shoot_count - 1)
             if self.prev_cargo and cargo:
                 cargo_diff = self.prev_cargo - cargo
                 if cargo_diff == 0:
-                    reward = reward-0.01
+                    reward = reward - 0.01
                 else:
-                    reward = reward+abs(cargo_diff)*10
+                    reward = reward + abs(cargo_diff) * 10
             self.prev_cargo = cargo
             if self.prev_pos and observation['center']:
                 movement = math.dist(self.prev_pos, observation['center'])
                 if movement == 0:
                     reward = reward - 5
                 else:
-                    reward = reward + abs(movement)*0.01
+                    reward = reward + abs(movement) * 0.01
             self.prev_pos = observation['center']
             if observation['time'] > 155:
                 terminated = True
@@ -107,10 +128,10 @@ class VisionEnv(gym.Env):
             self.start = time.time()
             if red_ball_pos:
                 self.time_started = True
-        i=0
+        i = 0
         while i < count:
             self.result.task_done()
-            i+=1
+            i += 1
         return {
             "climbed": climbed,
             "time_started": self.time_started,
@@ -125,12 +146,13 @@ class VisionEnv(gym.Env):
 
     def run(self):
         self.ENV = VisionEnv()
+
         vision_thread = multiprocessing.Process(target=self.ENV.vision)
         cargo_thread = multiprocessing.Process(target=self.ENV.cargo)
         robot_thread = multiprocessing.Process(target=self.ENV.robot)
         red_balls_thread = multiprocessing.Process(target=self.ENV.red_balls)
         blue_balls_thread = multiprocessing.Process(target=self.ENV.blue_balls)
-
+        print(__name__)
         vision_thread.start()
         cargo_thread.start()
         robot_thread.start()
@@ -159,7 +181,7 @@ class VisionEnv(gym.Env):
                 climb_mask = cv2.inRange(hsv, lower_climb, upper_climb)
                 contours, _ = cv2.findContours(climb_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
                 if len(contours) > 1 and keyboard.is_pressed('q'):
-                    pyKey.press(key='r', sec=0.1)
+                    pyautogui.press('r')
                     climbed = True
                 if climbed:
                     self.result.put(["cl", True])
@@ -290,14 +312,3 @@ class VisionEnv(gym.Env):
             self.h.task_done()
             self.result.join()
 
-
-if __name__ == "__main__":
-    env = VisionEnv()
-    env.run()
-    total_reward = 0
-    while True:
-        observation, reward, terminated, random, info = env.step(0)
-        total_reward = reward+total_reward
-        if terminated:
-            print(total_reward)
-            break
